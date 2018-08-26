@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.distributions import
 import numpy as np
 import gym
 
@@ -20,8 +19,9 @@ This does not work with recurrent neural networks. You would need to track a his
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # The neural network layers shared by both action and value function
-class ConvNet(nn.Module):
-    def __init__(self):
+class NeuralNet(nn.Module):
+    def __init__(self, obs_length):
+        """
         super(ConvNet, self).__init__()
         self.layer1 = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=5, stride=1, padding=2),
@@ -34,64 +34,71 @@ class ConvNet(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.fc = nn.Linear(7 * 7 * 32, 10)
-
+        """
+        # Can be changed freely, e.g. to a CNN architecture
+        super(NeuralNet, self).__init__()
+        self.layer1 = nn.Linear(obs_length, 20)
+        self.layer2 = nn.Linear(20, 10)
+        self.fc = nn.Linear(10, 10)
     def forward(self, x):
         out = self.layer1(x)
         out = self.layer2(out)
-        out = out.reshape(out.size(0), -1)
         out = self.fc(out)
         return out
 
-shared = ConvNet().to(device)
+
 
 class ActionFunction(nn.Module):
-    def __init__(self, num_actions):
+    def __init__(self, shared, num_actions):
         super(ActionFunction, self).__init__()
+        self.shared = shared
         self.fc = nn.Linear(10, num_actions)
 
     def forward(self, x):
-        return self.softmax(shared(x))
+        return self.fc(self.shared(x))
 
 class ValueFunction(nn.Module):
-    def __init__(self):
+    def __init__(self, shared):
         super(ValueFunction, self).__init__()
+        self.shared = shared
         self.fc = nn.Linear(10, 1)
 
     def forward(self, x):
-        return self.fc(shared(x))
-
-action_function = ActionFunction().to(device)
-value_function = ValueFunction().to(device)
-
+        return self.fc(self.shared(x))
 
 
 class Model():
 
-    def __init__(self, obs_space, ac_space, nsteps, ent_coef, vf_coef, lr):
-       self.obs_space, self.ac_space, self.nsteps, self.ent_coef, self.vf_coef \
-           = obs_space, ac_space, nsteps, ent_coef, vf_coef
-       self.parameters = list(shared.parameters()) + list(action_function.parameters()) + list(
-           value_function.parameters())
-       self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+    def __init__(self, obs_space, ac_space, nsteps, vf_coef, lr):
+       shared_layers = NeuralNet(obs_space).to(device)
+       self.action_function = ActionFunction(shared_layers, ac_space).to(device)
+       self.value_function = ValueFunction(shared_layers).to(device)
+       self.obs_space, self.ac_space, self.nsteps, self.vf_coef \
+           = obs_space, ac_space, nsteps, vf_coef
+       self.parameters = list(shared_layers.parameters()) + list(self.action_function.parameters()) + list(
+           self.value_function.parameters())
+       self.optimizer = torch.optim.Adam(self.parameters, lr=lr)
        self.v_loss_weight = vf_coef
 
+    # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, cliprange):
 
         # CALCULATE LOSS
-        value = value_function(obs)
+        obs_tensor = torch.tensor(obs, dtype=torch.float)
+        value = self.value_function(obs_tensor)
         v_clipped = torch.clamp(value - v_prev, -cliprange, cliprange) + v_prev
         v_loss = (value - v_target) ** 2
         v_loss_clipped = (v_clipped - v_target) ** 2
         # model will minimize the clipped or the non-clipped loss, whichever is greater
         v_loss_final = .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
 
-        a_logits = action_function(obs)
+        a_logits = self.action_function(obs_tensor)
         # a_logit is the unscaled log of the actual action probability (a_prob), as no softmax has been applied.
-        a_logit = a_logits[action_index]
+        selected_a_logit = a_logits[:,[i for i in action_index]]
         adv = v_target - v_prev
 
-        # equivalent to dividing the actual a_prob by the previous actual a_prob
-        ratio = torch.exp(a_logit - a_logit_prev)
+        # equivalent to dividing the actual (after softmax) a_prob by the previous actual a_prob
+        ratio = torch.exp(selected_a_logit - a_logit_prev)
         a_loss = - adv * ratio
         a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
         a_loss_final = .5 * torch.mean(torch.max(a_loss, a_loss_clipped))
@@ -100,10 +107,15 @@ class Model():
 
         # GRADIENT DESCENT
         self.optimizer.zero_grad()
-        loss.backwards() # compute gradients for all tensors where require_grad=True
+        loss.backward(retain_graph=True) # compute gradients
         self.optimizer.step() # apply gradients
 
-
+    def evaluate(self, obs):
+        obs_tensor = torch.tensor(obs, dtype=torch.float)
+        a_logits = self.action_function(obs_tensor)
+        a_logit, action_index = a_logits.max(0)
+        value = self.value_function(obs_tensor)
+        return action_index.item(), value, a_logit
 
 # This class will follow output from the model to take actions in the environment.
 # It will return the tuples of experience (observation, action, reward) it receives
@@ -128,28 +140,28 @@ class Runner(object):
         steps_taken = 0
         for _ in range(self.nsteps):
             # get information/instructions from model
-            action, value, neglogprob = self.model.step(obs)
+            action_index, value, a_logit = self.model.evaluate(obs)
 
-            stored_obs.append(obs.copy())
-            stored_actions.append(action)
+            stored_obs.append(obs)
+            stored_actions.append(action_index)
             stored_vpreds.append(value)
             # tracking neg. log prob. of having gotten the sampled action
-            stored_neglogprobs.append(neglogprob)
-            obs, reward, done = self.env.step(action)
+            stored_neglogprobs.append(a_logit)
+            obs, reward, done = self.env.step(action_index)
             stored_rewards.append(reward)
-            steps_taken += 1
             if done:
                 break
+            steps_taken += 1
 
         # convert experience lists to torch tensors
-        stored_obs = torch.tensor(stored_obs, dtype=self.obs.dtype, requires_grad=True)
-        stored_rewards = torch.tensor(stored_rewards, dtype=np.float32, requires_grad=True)
-        stored_actions = torch.tensor(stored_actions, dtype=int, requires_grad=True)
-        stored_vpreds = torch.tensor(stored_vpreds, dtype=np.float32, requires_grad=True)
-        stored_neglogprobs = torch.tensor(stored_neglogprobs, dtype=np.float32, requires_grad=True)
+        stored_obs = torch.tensor(stored_obs, dtype=torch.float)
+        stored_rewards = torch.tensor(stored_rewards, dtype=torch.float)
+        stored_vpreds = torch.tensor(stored_vpreds, dtype=torch.float)
+        stored_neglogprobs = torch.tensor(stored_neglogprobs, dtype=torch.float)
+        stored_actions = torch.tensor(stored_actions, dtype = torch.int)
 
         # evaluate the final state
-        last_value = self.model.value(obs)
+        _, last_value, _ = self.model.evaluate(obs)
 
         # use the stored values and rewards to calculate advantage estimates of the state-action pairs
         # (see Generalized Advantage Estimation paper)
@@ -190,7 +202,7 @@ def function_wrap(val):
         return val
     return f
 
-def learn(env, s_batch, total_timesteps, ent_coef, lr,
+def learn(env, s_batch, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
           log_interval=10, nminibatches=4, epochs_per_batch=4, cliprange=0.2,
           save_interval=10):
@@ -205,26 +217,46 @@ def learn(env, s_batch, total_timesteps, ent_coef, lr,
     ac_space = env.action_space
     total_timesteps = int(total_timesteps)
 
-    n_batch = total_timesteps / s_batch
-    s_minibatch = s_batch / nminibatches
+    n_batch = total_timesteps // s_batch
+    s_minibatch = s_batch // nminibatches
 
-    model = Model(ob_space, ac_space, s_batch, ent_coef, vf_coef, lr)
+    model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
 
-    for i in n_batch:
-        steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev = runner.Run()
-        inds = np.arange(s_batch)
-        for i in epochs_per_batch:
+    for i in range(n_batch):
+        steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev = runner.run()
+        inds = np.arange(steps_taken)
+        for i in range(epochs_per_batch):
             # randomnly shuffle the steps into minibatches, for each epoch
             np.random.shuffle(inds)
-            for start in range(0, s_batch, s_minibatch):
+            for start in range(0, steps_taken, s_minibatch):
                 end = start + s_minibatch
                 # the step indices for each minibatch
                 mb_inds = inds[start:end]
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev))
                 model.train(*slices, cliprange)
 
+
+# converts the env's actions and observations into lists (representing matrices) if necessary
+def obsToList(obs):
+    # doesn't do anything for this particular env,
+    # only converted to Pytorch tensors when necessary as tensors are immutable
+    return obs
+class envWrapper():
+    def __init__(self, env):
+        self.env = env
+        self.observation_space = env.observation_space.shape[0]
+        self.action_space = env.action_space.n
+    def reset(self):
+        return obsToList(self.env.reset())
+    def step(self, action_index):
+        obs, reward, done, _ = self.env.step(action_index)
+        return obsToList(obs), reward, done
+
+
 def test():
-    env = gym.make('CartPole-v0')
-    learn(env, 4096, int(5e7), 0, 2e-4)
+    env = envWrapper(gym.make('CartPole-v0'))
+    learn(env, 4096, 1e5, 2e-4)
+
 test()
+
