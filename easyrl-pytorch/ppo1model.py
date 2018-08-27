@@ -23,45 +23,30 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # The neural network layers shared by both action and value function
 class ConvNet(nn.Module):
-    def __init__(self, obs_length):
+    def __init__(self, obs_length, num_actions):
 
         super(ConvNet, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(3, 5, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm2d(5),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(5, 10, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm2d(10),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
-        self.fc = nn.Linear(66560, 10)
+        self.fc = nn.Linear(20800, 10)
+        self.fcAction = nn.Linear(10, num_actions)
+        self.fcValue = nn.Linear(10, 1)
 
     def forward(self, x):
         out = self.layer1(x)
         out = self.layer2(out)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
-        return out
+        return self.fcValue(out), self.fcAction(out)
 
-class ActionFunction(nn.Module):
-    def __init__(self, shared, num_actions):
-        super(ActionFunction, self).__init__()
-        self.shared = shared
-        self.fc = nn.Linear(10, num_actions)
-
-    def forward(self, x):
-        return self.fc(self.shared(x))
-
-class ValueFunction(nn.Module):
-    def __init__(self, shared):
-        super(ValueFunction, self).__init__()
-        self.shared = shared
-        self.fc = nn.Linear(10, 1)
-
-    def forward(self, x):
-        return self.fc(self.shared(x))
 
 def calculateEntropy(logits):
     a0 = logits - torch.max(logits, -1, keepdim=True)[0]
@@ -73,30 +58,25 @@ def calculateEntropy(logits):
 class Model():
 
     def __init__(self, obs_space, ac_space, nsteps, vf_coef, lr):
-       shared_layers = ConvNet(obs_space).to(device)
-       self.action_function = ActionFunction(shared_layers, ac_space).to(device)
-       self.value_function = ValueFunction(shared_layers).to(device)
+       self.nn = ConvNet(obs_space, ac_space).to(device)
        self.obs_space, self.ac_space, self.nsteps, self.vf_coef \
            = obs_space, ac_space, nsteps, vf_coef
-       self.parameters = list(shared_layers.parameters()) + list(self.action_function.parameters()) + list(
-           self.value_function.parameters())
-       self.optimizer = torch.optim.Adam(self.parameters, lr=lr)
+       self.optimizer = torch.optim.Adam(self.nn.parameters(), lr=lr)
        self.v_loss_weight = vf_coef
 
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
         # CALCULATE PPO LOSS
-        value = self.value_function(obs)
+        value, a_logits = self.nn(obs)
+
         v_clipped = torch.clamp(value - v_prev, -cliprange, cliprange) + v_prev
         v_loss = (value - v_target) ** 2
         v_loss_clipped = (v_clipped - v_target) ** 2
         # model will minimize the clipped or the non-clipped loss, whichever is greater
         v_loss_final = .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
 
-        a_logits = self.action_function(obs)
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         entropy = torch.mean(calculateEntropy(a_logits))
-
         # a_logit is the unscaled log of the actual action probability (a_prob), as no softmax has been applied.
         selected_a_logit = a_logits[np.arange(a_logits.shape[0]),[i for i in action_index]]
 
@@ -117,11 +97,11 @@ class Model():
         self.optimizer.step() # apply gradients
 
     def evaluate(self, obs_tensor):
-        a_logits = self.action_function(obs_tensor)[0]
-
+        value, a_logits = self.nn(obs_tensor)
+        value=torch.squeeze(value, dim=0)
+        a_logits = torch.squeeze(a_logits, dim=0)
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         a_logit, action_index = a_logits.max(0)
-        value = self.value_function(obs_tensor)
         return action_index.item(), value, a_logit, sum_exp_logits
 
 # This class will follow output from the model to take actions in the environment.
@@ -167,7 +147,6 @@ class Runner(object):
             if done:
                 break
             steps_taken += 1
-
         # convert experience lists to torch tensors
         stored_obs = torch.tensor(stored_obs, dtype=torch.float)
         stored_rewards = torch.tensor(stored_rewards, dtype=torch.float)
@@ -277,8 +256,8 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(gym.make('SpaceInvaders-v0'))
-    model = learn(env, 100, 2e5, 2e-4)
+    env = envWrapper(gym.make('Pong-v0'))
+    model = learn(env, 100, 2e3, 2e-4)
     total_reward = 0
     for i in range(300):
         obs = env.reset()
