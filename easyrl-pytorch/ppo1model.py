@@ -259,7 +259,7 @@ class envWrapper():
 
 def test():
     env = envWrapper(gym.make('Pong-v0'))
-    model = learn(env, 1000, 1e4, 2e-4)
+    model = learn(env, 5000, 1e5, 2e-4)
     total_reward = 0
     for i in range(300):
         obs = env.reset()
