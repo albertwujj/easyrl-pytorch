@@ -85,6 +85,9 @@ class Model():
 
         # equivalent to dividing the actual (after softmax) predicted prob by the previous predicted prob
         ratio = torch.exp(selected_a_logit - a_logit_prev) / sum_exp_logits * sum_exp_logits_prev
+        print(sum_exp_logits)
+        print(sum_exp_logits_prev)
+        print(ratio)
         a_loss = - adv * ratio
         a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
         a_loss_final = .5 * torch.mean(torch.max(a_loss, a_loss_clipped))
