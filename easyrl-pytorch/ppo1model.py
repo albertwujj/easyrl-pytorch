@@ -219,6 +219,7 @@ def learn(env, s_batch, total_timesteps, lr,
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
 
+    minibatches=0
     for i in range(n_batch):
         steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run()
         print("1 run")
@@ -234,7 +235,8 @@ def learn(env, s_batch, total_timesteps, lr,
                 start = time.perf_counter()
                 model.train(*slices, cliprange)
                 print("train_time: {}".format(time.perf_counter() - start))
-                print("1 minibatch")
+                print("{} minibatch".format(minibatches))
+                minibatches += 1
         print("1 update")
 
     return model
