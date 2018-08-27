@@ -130,7 +130,7 @@ class Runner(object):
         steps_taken = 0
         for _ in range(self.nsteps):
             # get information/instructions from model
-            obs_tensor = torch.unsqueeze(torch.tensor(obs, dtype=torch.float),0)
+            obs_tensor = torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device),0)
             start = time.perf_counter()
             action_index, value, a_logit, se_logits = self.model.evaluate(obs_tensor)
             eval_time += time.perf_counter() - start
@@ -148,12 +148,12 @@ class Runner(object):
                 break
             steps_taken += 1
         # convert experience lists to torch tensors
-        stored_obs = torch.tensor(stored_obs, dtype=torch.float)
-        stored_rewards = torch.tensor(stored_rewards, dtype=torch.float)
-        stored_vpreds = torch.tensor(stored_vpreds, dtype=torch.float)
-        stored_neglogprobs = torch.tensor(stored_neglogprobs, dtype=torch.float)
-        stored_se_logits = torch.tensor(stored_se_logits, dtype=torch.float)
-        stored_actions = torch.tensor(stored_actions, dtype = torch.int)
+        stored_obs = torch.tensor(stored_obs, dtype=torch.float).to(device)
+        stored_rewards = torch.tensor(stored_rewards, dtype=torch.float).to(device)
+        stored_vpreds = torch.tensor(stored_vpreds, dtype=torch.float).to(device)
+        stored_neglogprobs = torch.tensor(stored_neglogprobs, dtype=torch.float).to(device)
+        stored_se_logits = torch.tensor(stored_se_logits, dtype=torch.float).to(device)
+        stored_actions = torch.tensor(stored_actions, dtype = torch.int).to(device)
         print(eval_time)
         print(step_time)
         # evaluate the final state
@@ -257,12 +257,12 @@ class envWrapper():
 
 def test():
     env = envWrapper(gym.make('Pong-v0'))
-    model = learn(env, 100, 2e3, 2e-4)
+    model = learn(env, 1000, 1e4, 2e-4)
     total_reward = 0
     for i in range(300):
         obs = env.reset()
         while True:
-            action_index, _ , _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float),0))
+            action_index, _ , _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device),0))
             obs, reward, done = env.step(action_index)
             total_reward += reward
             if done:
@@ -272,7 +272,6 @@ def test():
     for i in range(300):
         obs = env.reset()
         while True:
-            action_index, _, _, _ = model.evaluate(obs)
             obs, reward, done = env.step(env.env.action_space.sample())
             total_reward_rand += reward
             if done:
