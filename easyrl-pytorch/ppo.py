@@ -277,9 +277,9 @@ class envWrapper():
 
 def test():
     env = envWrapper(gym.make('SpaceInvaders-v0'))
-    model = learn(env, 100, 1e5, 2e-4)
+    model = learn(env, 10, 1e5, 2e-4)
     total_reward = 0
-    for i in range(100):
+    for i in range(10):
         obs = env.reset()
         while True:
             action_index, _ , _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float),0))
@@ -289,7 +289,7 @@ def test():
                 break
 
     total_reward_rand = 0
-    for i in range(100):
+    for i in range(10):
         obs = env.reset()
         while True:
             action_index, _, _, _ = model.evaluate(obs)
