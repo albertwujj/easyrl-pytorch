@@ -96,6 +96,8 @@ class Model():
         loss.backward(retain_graph=True) # compute gradients
         self.optimizer.step() # apply gradients
 
+        return loss.item()
+
     def evaluate(self, obs_tensor):
         value, a_logits = self.nn(obs_tensor)
         value=torch.squeeze(value, dim=0)
@@ -218,13 +220,14 @@ def learn(env, s_batch, total_timesteps, lr,
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
-
+    loss_arr = []
     minibatches=0
     for i in range(n_batch):
         steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run()
         print("1 run")
         inds = np.arange(steps_taken)
         for i in range(epochs_per_batch):
+            print(loss_arr)
             # randomnly shuffle the steps into minibatches, for each epoch
             np.random.shuffle(inds)
             for start in range(0, steps_taken, s_minibatch):
@@ -233,7 +236,7 @@ def learn(env, s_batch, total_timesteps, lr,
                 mb_inds = inds[start:end]
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev, se_logits))
                 start = time.perf_counter()
-                model.train(*slices, cliprange)
+                loss_arr.append(model.train(*slices, cliprange))
                 print("train_time: {}".format(time.perf_counter() - start))
                 print("{} minibatch".format(minibatches))
                 minibatches += 1
