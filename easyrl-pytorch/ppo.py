@@ -168,7 +168,6 @@ class Runner(object):
         stored_sum_exp_logits = np.asarray(stored_sum_exp_logits, dtype=np.float32)
         stored_actions = np.asarray(stored_actions, dtype=np.float32)
         stored_vpreds = np.asarray(stored_vpreds, dtype=np.float32)
-        print(eval_time)
         # evaluate the final state
         _, last_value, _, _ = self.model.evaluate(obs_tensor)
 
@@ -227,7 +226,6 @@ def learn(env, s_batch, total_timesteps, lr,
     total_timesteps = int(total_timesteps)
 
     n_batch = total_timesteps // s_batch
-    print(n_batch)
     s_minibatch = math.ceil(s_batch // nminibatches)
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
@@ -236,7 +234,6 @@ def learn(env, s_batch, total_timesteps, lr,
 
     for batch in range(n_batch):
         steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
-        print(steps_taken)
         inds = np.arange(steps_taken)
         for epoch in range(epochs_per_batch):
             # randomnly shuffle the steps into minibatches, for each epoch
