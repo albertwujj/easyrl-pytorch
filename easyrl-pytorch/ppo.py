@@ -248,7 +248,7 @@ def learn(env, s_batch, total_timesteps, lr,
                 loss_arr.append(model.train(*slices, cliprange))
                 #print("train_time: {}".format(time.perf_counter() - start))
                 minibatches += 1
-                print("{}, {}, {} mb e b".format(batch + 1, epoch + 1, minibatches))
+                print("{}, {}, {} b e mb".format(batch + 1, epoch + 1, minibatches))
 
     return model
 
