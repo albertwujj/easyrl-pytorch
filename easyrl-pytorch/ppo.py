@@ -284,6 +284,7 @@ def test():
         while True:
             action_index, _, _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0))
             obs, reward, done = env.step(action_index)
+            print(action_index)
             total_reward += reward
             if done:
                 break
