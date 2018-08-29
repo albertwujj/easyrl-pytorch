@@ -226,7 +226,7 @@ def learn(env, s_batch, total_timesteps, lr,
     total_timesteps = int(total_timesteps)
 
     n_batch = total_timesteps // s_batch
-    s_minibatch = math.ceil(s_batch // nminibatches)
+
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
@@ -239,6 +239,7 @@ def learn(env, s_batch, total_timesteps, lr,
             # randomnly shuffle the steps into minibatches, for each epoch
             np.random.shuffle(inds)
             minibatches = 0
+            s_minibatch = math.ceil(steps_taken // nminibatches)
             for start in range(0, steps_taken, s_minibatch):
                 end = start + s_minibatch
                 # the step indices for each minibatch
@@ -276,7 +277,7 @@ class envWrapper():
 
 def test():
     env = envWrapper(gym.make('Pong-v0'))
-    model = learn(env, 300, 0, 2e-4)
+    model = learn(env, 3000, 3e4, 2e-4)
     total_reward = 0
     for i in range(30):
         obs = env.reset()
@@ -286,7 +287,7 @@ def test():
             total_reward += reward
             if done:
                 break
-        print("1 testgame done")
+        print("{} testgames done".format(i))
     total_reward_rand = 0
     for i in range(30):
         obs = env.reset()
@@ -295,7 +296,7 @@ def test():
             total_reward_rand += reward
             if done:
                 break
-        print("1 testgame done")
+        print("{} testgames done".format(i))
     print("total_reward: {}".format(total_reward))
     print("total_reward_rand: {}".format(total_reward_rand))
 
