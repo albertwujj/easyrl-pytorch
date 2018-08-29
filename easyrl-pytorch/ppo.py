@@ -278,7 +278,7 @@ def test():
     env = envWrapper(gym.make('Pong-v0'))
     model = learn(env, 300, 0, 2e-4)
     total_reward = 0
-    for i in range(300):
+    for i in range(30):
         obs = env.reset()
         while True:
             action_index, _, _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0))
@@ -286,15 +286,16 @@ def test():
             total_reward += reward
             if done:
                 break
-
+        print("1 testgame done")
     total_reward_rand = 0
-    for i in range(300):
+    for i in range(30):
         obs = env.reset()
         while True:
             obs, reward, done = env.step(env.env.action_space.sample())
             total_reward_rand += reward
             if done:
                 break
+        print("1 testgame done")
     print("total_reward: {}".format(total_reward))
     print("total_reward_rand: {}".format(total_reward_rand))
 
