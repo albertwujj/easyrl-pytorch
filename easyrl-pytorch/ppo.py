@@ -21,6 +21,7 @@ This does not work with recurrent neural networks. You would need to track a his
 # TODO: Add parallel env support
 # TODO: Add RNN support
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
+# TODO: Reset env after env ends to continue adding steps to batch until hit batch_size
 
 # Device configuration
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -226,19 +227,21 @@ def learn(env, s_batch, total_timesteps, lr,
     total_timesteps = int(total_timesteps)
 
     n_batch = total_timesteps // s_batch
+    print(n_batch)
     s_minibatch = math.ceil(s_batch // nminibatches)
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
     loss_arr = []
-    minibatches = 0
-    for i in range(n_batch):
+
+    for batch in range(n_batch):
         steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
+        print(steps_taken)
         inds = np.arange(steps_taken)
-        for i in range(epochs_per_batch):
-            print("losses {}".format(loss_arr))
+        for epoch in range(epochs_per_batch):
             # randomnly shuffle the steps into minibatches, for each epoch
             np.random.shuffle(inds)
+            minibatches = 0
             for start in range(0, steps_taken, s_minibatch):
                 end = start + s_minibatch
                 # the step indices for each minibatch
@@ -246,9 +249,11 @@ def learn(env, s_batch, total_timesteps, lr,
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev, se_logits))
                 start = time.perf_counter()
                 loss_arr.append(model.train(*slices, cliprange))
-                print("train_time: {}".format(time.perf_counter() - start))
+                #print("train_time: {}".format(time.perf_counter() - start))
                 minibatches += 1
                 print("{} minibatch".format(minibatches))
+            print("{} epoch".format(epoch + 1))
+        print("{} batch".format(batch + 1))
 
     return model
 
@@ -276,7 +281,7 @@ class envWrapper():
 
 def test():
     env = envWrapper(gym.make('Pong-v0'))
-    model = learn(env, 1000, 1e5, 2e-4)
+    model = learn(env, 3000, 2e4, 2e-4)
     total_reward = 0
     for i in range(300):
         obs = env.reset()
