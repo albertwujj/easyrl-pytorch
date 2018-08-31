@@ -2,26 +2,26 @@ import torch
 import torch.nn as nn
 import numpy as np
 import gym
-import random
+import retro
 import math
 import time
 
-import gym
+from sonic_util import make_env
 
-""" PURPOSE
-# RL implementation is very simple math. Let's not make it harder than it needs to be. There are two functional differences between this PPO
-# and OpenAI's very opaque implementation: 
+from atari_wrappers import WarpFrame, FrameStack
 
-This only runs on one environment at a time. In order to handle multiple, add a dimension to the arrays in the Runner class,
-along with using an array to keep track of which environments are done. 
+import logging
 
-This does not work with recurrent neural networks. You would need to track a history of states.
+logging.basicConfig(filename="losses.log", level=logging.DEBUG)
+
+""" A readable, thoroughly commented implementation of PPO
 """
 
 # TODO: Add parallel env support
-# TODO: Add RNN support
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
-# TODO: Reset env after env ends to continue adding steps to batch until hit batch_size
+# TODO: Reset env after done to continue adding steps to batch until hitting batch_size
+# TODO: Calculate the # of input channels for convolutional layers automatically
+# TODO: Add RNN support
 
 # Device configuration
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -32,16 +32,16 @@ class ConvNet(nn.Module):
     def __init__(self, obs_length, num_actions):
         super(ConvNet, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv2d(3, 5, kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(4, 5, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm2d(5),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(5, 10, kernel_size=5, stride=1, padding=2),
+            nn.Conv2d(5, 10, kernel_size=3, stride=1, padding=2),
             nn.BatchNorm2d(10),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
-        self.fc = nn.Linear(20800, 10)
+        self.fc = nn.Linear(4840, 10)
         self.fcAction = nn.Linear(10, num_actions)
         self.fcValue = nn.Linear(10, 1)
 
@@ -109,7 +109,7 @@ class Model():
         loss.backward()  # compute gradients
         self.optimizer.step()  # apply gradients
 
-        return loss.item()
+        return v_loss_final.item(), a_loss_final.item(), loss.item(), entropy.item()
 
     def evaluate(self, obs_tensor):
         value, a_logits = self.nn(obs_tensor)
@@ -162,6 +162,8 @@ class Runner(object):
             steps_taken += 1
 
         # convert experience lists to numpy arrays
+        # (Do not convert to Pytorch tensors until feeding into network,
+        # (as the backprop computation graph starts being built from the first tensor)
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
         stored_a_logits = np.asarray(stored_a_logits, dtype=np.float32)
@@ -197,7 +199,6 @@ class Runner(object):
         # for each step, its prior value plus its advantage estimate
         # is exactly the TD-lambda value estimate (by definition)
         # so stored_vtargets becomes the new target values for our Model's value function
-        # (which is different from the action function but has shared hidden layers
         stored_vtargets = stored_advs + stored_vpreds
 
         return steps_taken, stored_obs, stored_rewards, stored_vpreds, stored_vtargets, stored_actions, stored_a_logits, stored_sum_exp_logits
@@ -214,7 +215,7 @@ def function_wrap(val):
 # then repeat
 def learn(env, s_batch, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
-          log_interval=10, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
+          log_interval=1, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
           save_interval=10):
     """
     VARIABLE NAMING CONVENTIONS
@@ -230,9 +231,10 @@ def learn(env, s_batch, total_timesteps, lr,
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
-    loss_arr = []
+
 
     for batch in range(n_batch):
+        loss_arr = []
         steps_taken, obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
         inds = np.arange(steps_taken)
         for epoch in range(epochs_per_batch):
@@ -250,6 +252,8 @@ def learn(env, s_batch, total_timesteps, lr,
                 #print("train_time: {}".format(time.perf_counter() - start))
                 minibatches += 1
                 print("{}, {}, {} b e mb".format(batch + 1, epoch + 1, minibatches))
+        if batch != 0 and batch % log_interval == 0:
+            logging.debug("Batch {}, losses (v,a,total,entropy)= {}".format(batch, loss_arr))
 
     return model
 
@@ -276,7 +280,7 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(gym.make('Pong-v0'))
+    env = envWrapper(make_env()())
     model = learn(env, 3000, 3e4, 2e-4)
     total_reward = 0
     for i in range(30):
