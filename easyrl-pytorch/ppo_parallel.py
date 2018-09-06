@@ -113,13 +113,15 @@ class Model():
         return v_loss_final.item(), a_loss_final.item(), loss.item(), entropy.item()
 
     def evaluate(self, obs_tensor):
+        """
+        first dimension of input/output is # of observations
+        """
         value, a_logits = self.nn(obs_tensor)
         value = value
         a_logits = a_logits
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         a_logit, action_index = a_logits.max(-1)
-        # return the actual floats/int
-        return action_index, value, a_logit, sum_exp_logits
+        return action_index.tolist(), value.tolist(), a_logit.tolist(), sum_exp_logits.tolist()
 
 
 # This class will use the model to take actions in the environment.
@@ -163,10 +165,12 @@ class Runner(object):
             stored_a_logits.append(a_logit)
             stored_rewards.append(reward)
             stored_dones.append(done)
-
-            obs, reward, done = self.env.step(action_index.tolist()) # experience is not recorded for the final step
-
             stored_sum_exp_logits.append(se_logits)
+
+            obs, reward, done = self.env.step(action_index)
+            # experience is not recorded for the final step
+
+
 
 
         _, last_value, _, _ = self.model.evaluate(obs_tensor) # evaluate the final state
