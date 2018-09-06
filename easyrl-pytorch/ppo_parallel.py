@@ -114,7 +114,6 @@ class Model():
 
     def evaluate(self, obs_tensor):
         value, a_logits = self.nn(obs_tensor)
-        # remove batch_size dimension from model output, as we always evaluate 1 step at a time
         value = value
         a_logits = a_logits
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
@@ -165,7 +164,7 @@ class Runner(object):
             stored_rewards.append(reward)
             stored_dones.append(done)
 
-            obs, reward, done = self.env.step(action_index) # experience is not recorded for the final step
+            obs, reward, done = self.env.step(action_index.tolist()) # experience is not recorded for the final step
 
             stored_sum_exp_logits.append(se_logits)
 
