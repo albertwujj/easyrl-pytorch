@@ -301,6 +301,7 @@ class envWrapper():
         self.env = env
         self.observation_space = env.observation_space.shape[0]
         self.action_space = env.action_space.n
+        self.num_envs = env.num_envs
 
     def reset(self):
         return obsConverter(self.env.reset())
