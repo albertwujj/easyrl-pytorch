@@ -121,7 +121,7 @@ class Model():
         a_logits = a_logits
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         a_logit, action_index = a_logits.max(-1)
-        return action_index.tolist(), value.tolist(), a_logit.tolist(), sum_exp_logits.tolist()
+        return action_index, value, a_logit, sum_exp_logits
 
 
 # This class will use the model to take actions in the environment.
@@ -148,8 +148,8 @@ class Runner(object):
         eval_time = 0
         obs = self.env.reset() # first obs (so we actually have (nsteps+1) obs)
 
-        done = None
-        reward = None
+        done = np.zeros((self.env.num_envs), dtype=bool)
+        reward = np.zeros((self.env.num_envs))
         for _ in range(self.nsteps):
 
             start = time.perf_counter()
