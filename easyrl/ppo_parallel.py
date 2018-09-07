@@ -289,7 +289,6 @@ def learn(env, s_batch, total_timesteps, lr,
     return model
 
 
-# converts the env's actions and observations into lists (representing matrices) if necessary
 def obsConverter(obs):
     # changes observation's channel dimension to be it's 2nd
     return np.transpose(obs, (0,3, 2, 1))
@@ -305,8 +304,8 @@ class envWrapper():
         return obsConverter(self.env.reset())
 
     def step(self, action_index):
-        obs, reward, done, _ = self.env.step(action_index)
-        return obsConverter(obs), reward, done
+        obs, reward, done, _ = self.env.step(action_index) # output is numpy array, we want list
+        return obsConverter(obs).tolist(), reward.tolist(), done.tolist()
 
 
 def test():
