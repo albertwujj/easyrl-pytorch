@@ -163,6 +163,8 @@ class Runner(object):
             stored_actions.append(action_index)
             stored_vpreds.append(value)
             stored_a_logits.append(a_logit)
+            if reward is None:
+                reward = np.zeros((self.env.num_envs))
             stored_rewards.append(reward)
             stored_dones.append(done)
             stored_sum_exp_logits.append(se_logits)
@@ -305,7 +307,7 @@ class envWrapper():
 
     def step(self, action_index):
         obs, reward, done, _ = self.env.step(action_index) # output is numpy array, we want list
-        return obsConverter(obs).tolist(), reward.tolist(), done.tolist()
+        return obsConverter(obs).tol, reward.tolist(), done.tolist()
 
 
 def test():
