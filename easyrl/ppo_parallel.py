@@ -181,6 +181,8 @@ class Runner(object):
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
         stored_a_logits = np.asarray(stored_a_logits, dtype=np.float32)
         stored_sum_exp_logits = np.asarray(stored_sum_exp_logits, dtype=np.float32)
+        print("hey")
+        print(stored_actions)
         stored_actions = np.asarray(stored_actions, dtype=np.float32)
         stored_vpreds = np.asarray(stored_vpreds, dtype=np.float32)
         stored_dones = np.asarray(stored_dones, dtype=np.bool)
