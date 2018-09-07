@@ -10,9 +10,9 @@ from atari_wrappers import WarpFrame, FrameStack
 
 count = 0
 envs = []
-for game in retro.list_games():
+for game in retro.data.list_games():
     if "Sonic" in game:
-        for state in retro.list_states(game):
+        for state in retro.data.list_states(game):
             envs.append((game, state))
             count += 1
 
