@@ -308,7 +308,7 @@ class envWrapper():
 
     def step(self, action_index):
         obs, reward, done, _ = self.env.step(action_index) # output is numpy array, we want list
-        return obsConverter(obs).tolist(), reward, done.tolist()
+        return obsConverter(obs), reward, done
 
 
 def test():
