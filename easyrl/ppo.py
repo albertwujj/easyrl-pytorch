@@ -148,7 +148,7 @@ class Runner(object):
 
             start = time.perf_counter()
             obs_tensor = torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0)
-            action_index, value, a_logit, se_logits = self.model.evaluate(obs_tensor)
+            action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
             eval_time += time.perf_counter() - start
             stored_obs.append(obs)
             stored_actions.append(action_index)
@@ -171,7 +171,7 @@ class Runner(object):
         stored_actions = np.asarray(stored_actions, dtype=np.float32)
         stored_vpreds = np.asarray(stored_vpreds, dtype=np.float32)
         # evaluate the final state
-        _, last_value, _, _ = self.model.evaluate(obs_tensor)
+        _, last_value, _, _ = self.model.eval_and_sample(obs_tensor)
 
         # use the stored values and rewards to calculate advantage estimates of the state-action pairs
         # (see Generalized Advantage Estimation paper)

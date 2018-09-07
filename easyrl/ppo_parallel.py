@@ -5,6 +5,7 @@ import gym
 import retro
 import math
 import time
+import random
 
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
@@ -20,7 +21,8 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 """ A readable, thoroughly commented implementation of PPO
 """
 
-# TODO: Add parallel env support
+# TODO: CLEAN/COMMENT CODE
+# TODO: Change "s" to mean 1d array, "ss" to mean 2d array
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
 # TODO: Reset env after done to continue adding steps to batch until hitting batch_size
 # TODO: Calculate the # of input channels for convolutional layers automatically
@@ -114,16 +116,24 @@ class Model():
 
         return v_loss_final.item(), a_loss_final.item(), loss.item(), entropy.item()
 
-    def evaluate(self, obs_tensor):
+    def eval_and_sample(self, obs_tensor):
         """
-        first dimension of input/output is # of observations
+        first dimension of everything is # of observations
         """
         value, a_logits = self.nn(obs_tensor)
-        value = value
-        a_logits = a_logits
-        sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
-        a_logit, action_index = a_logits.max(-1)
-        return action_index, value, a_logit, sum_exp_logits
+        # squeeze value from shape (num_obs, 1) to (num_obs)
+        # (treat the value for an obs as a single number rather than an array)
+        value = torch.squeeze(value, -1).detach().numpy()
+        a_logits = a_logits.detach().numpy()
+        sum_exp_logits = np.sum(np.exp(a_logits), -1)
+
+        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits,-1) # apply softmax
+
+        sample_row = lambda row: np.random.choice(row.shape[0], p=row)
+        a_i = np.apply_along_axis(sample_row, 1, a_probs)
+        a_logit = a_logits[np.arange(a_logits.shape[0]),a_i]
+
+        return a_i, value, a_logit, sum_exp_logits
 
 
 # This class will use the model to take actions in the environment.
@@ -156,7 +166,9 @@ class Runner(object):
 
             start = time.perf_counter()
             obs_tensor = torch.tensor(obs, dtype=torch.float).to(device)
-            action_index, value, a_logit, se_logits = self.model.evaluate(obs_tensor)
+            action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
+
+
             eval_time += time.perf_counter() - start
 
             # if env contains multiple envs,
@@ -171,24 +183,24 @@ class Runner(object):
             stored_dones.append(done)
             stored_sum_exp_logits.append(se_logits)
 
-            obs, reward, done = self.env.step(action_index.numpy())
+            obs, reward, done = self.env.step(action_index)
             # experience is not recorded for the final step
 
 
 
 
-        _, last_value, _, _ = self.model.evaluate(obs_tensor) # evaluate the final state
+        _, last_value, _, _ = self.model.eval_and_sample(obs_tensor) # evaluate the final state
         # convert experience lists to numpy arrays
         # (Do not convert to Pytorch tensors until feeding into network,
         # (as the backprop computation graph starts being built from the first tensor)
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
-        print(stored_a_logits)
         stored_a_logits = np.asarray(stored_a_logits, dtype=np.float32)
         stored_sum_exp_logits = np.asarray(stored_sum_exp_logits, dtype=np.float32)
         stored_actions = np.asarray(stored_actions, dtype=np.float32)
         stored_vpreds = np.asarray(stored_vpreds, dtype=np.float32)
         stored_dones = np.asarray(stored_dones, dtype=np.bool)
+        print(stored_actions)
 
 
         # use the stored values and rewards to calculate advantage estimates of the state-action pairs
@@ -196,7 +208,7 @@ class Runner(object):
         stored_advs = np.zeros_like(stored_rewards)
 
         # Our adv. estimate is an exponentially-weighted average (EWA) over the n-step TD errors of the value of the state.
-        last_adv = 0
+        last_adv = np.zeros((self.env.num_envs))
         for t in reversed(range(self.nsteps)):
             # we will technically have (nsteps+1) steps,
             # but data for the final step is not returned (as we cannot calculate a value target/adv for the last step)
@@ -213,10 +225,13 @@ class Runner(object):
             current_value = stored_vpreds[t]
 
             # gamma is reward decay constant, lam is EWA "decay" constant
+
             delta = stored_rewards[t] + self.gamma * nextvalue * nextnotdones - current_value # one-step TD error
 
             # the EWA of a step is equivalent to the decayed EWA of the next step + delta
             # (so you have work backwards from the last step)
+
+
             stored_advs[t] = last_adv = (last_adv * self.gamma * self.lam * nextnotdones) + delta
 
         # for each step, its prior value plus its advantage estimate
@@ -314,14 +329,13 @@ class envWrapper():
 
 def test():
     env = envWrapper(SubprocVecEnv(make_envs(num=2)))
-    model = learn(env, 3000, 3e4, 2e-4)
+    model = learn(env, 300, 3e4, 2e-4)
     total_reward = 0
     for i in range(30):
         obs = env.reset()
         while True:
-            action_index, _, _, _ = model.evaluate(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0)) # need to unsqueeze eval output
+            action_index, _, _, _ = model.eval_and_sample(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0)) # need to unsqueeze eval output
             obs, reward, done = env.step(action_index)
-            print(action_index)
             total_reward += reward
             if done:
                 break
@@ -337,6 +351,5 @@ def test():
         print("{} testgames done".format(i))
     print("total_reward: {}".format(total_reward))
     print("total_reward_rand: {}".format(total_reward_rand))
-
 
 test()
