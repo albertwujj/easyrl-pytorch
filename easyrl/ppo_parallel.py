@@ -6,6 +6,7 @@ import retro
 import math
 import time
 
+
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from sonic_util import make_envs
 
@@ -14,6 +15,9 @@ from atari_wrappers import WarpFrame, FrameStack
 import logging
 
 logging.basicConfig(filename="losses.log", level=logging.DEBUG)
+
+import torch.multiprocessing as multiprocessing
+multiprocessing.set_start_method('spawn')
 
 """ A readable, thoroughly commented implementation of PPO
 """
