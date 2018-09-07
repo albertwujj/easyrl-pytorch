@@ -181,7 +181,7 @@ class Runner(object):
         # (as the backprop computation graph starts being built from the first tensor)
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         print("hey")
-        print(stored_rewards)
+        print(stored_dones)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
         stored_a_logits = np.asarray(stored_a_logits, dtype=np.float32)
         stored_sum_exp_logits = np.asarray(stored_sum_exp_logits, dtype=np.float32)
