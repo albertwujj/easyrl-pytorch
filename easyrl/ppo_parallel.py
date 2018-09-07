@@ -16,8 +16,6 @@ import logging
 
 logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 
-import torch.multiprocessing as multiprocessing
-multiprocessing.set_start_method('spawn')
 
 """ A readable, thoroughly commented implementation of PPO
 """
@@ -29,7 +27,7 @@ multiprocessing.set_start_method('spawn')
 # TODO: Add RNN support
 
 # Device configuration
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0' if torch.cuda.is_available() and False else 'cpu')
 
 
 # The neural network outputting both action and value
