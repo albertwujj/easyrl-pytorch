@@ -21,8 +21,9 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 """ A readable, thoroughly commented implementation of PPO
 """
 
+
 # TODO: CLEAN/COMMENT CODE
-# TODO: Change "s" to mean 1d array, "ss" to mean 2d array
+# TODO: AUTOCALCULATE CNN CHANNEL SIZES
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
 # TODO: Reset env after done to continue adding steps to batch until hitting batch_size
 # TODO: Calculate the # of input channels for convolutional layers automatically
@@ -65,8 +66,8 @@ def calculateEntropy(logits):
     p0 = ea0 / z0
     return torch.sum(p0 * (torch.log(z0) - a0), -1)
 
-# Will take experience tuples, calculate PPO loss and train on it,
-# to predict action dist. and value for each obs
+# Will take steps of experience and calculate loss to minimize as per PPO
+# Predicts action distribution and value for each obs
 class Model():
     def __init__(self, obs_space, ac_space, nsteps, vf_coef, lr):
         self.nn = ConvNet(obs_space, ac_space).to(device)
@@ -77,6 +78,8 @@ class Model():
 
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
+
+        # convert data to tensors on device (either CPU or GPU)
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
         v_target = torch.tensor(v_target, dtype=torch.float).to(device)
         obs = torch.tensor(obs, dtype=torch.float).to(device)
@@ -92,10 +95,10 @@ class Model():
         # model will minimize the clipped or the non-clipped loss, whichever is greater
         v_loss_final = .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
 
-        # ACTION LOSS (PPO LOSS)
+        # PPO ACTION LOSS
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         entropy = torch.mean(calculateEntropy(a_logits))
-        # the unscaled log of the actual action probability, as no softmax has been applied.
+        # the unscaled log of the actual action dist. probabilities, as no softmax has been applied.
         selected_a_logit = a_logits[np.arange(a_logits.shape[0]), [i for i in action_index]]
         adv = v_target - v_prev
         # equivalent to dividing the predicted prob. by the previous predicted prob.
@@ -116,32 +119,35 @@ class Model():
 
         return v_loss_final.item(), a_loss_final.item(), loss.item(), entropy.item()
 
+    # NOTE: tensors/arrays w/ singular names are actually 1D
     def eval_and_sample(self, obs_tensor):
         """
         first dimension of everything is # of observations
         """
-        value, a_logits = self.nn(obs_tensor)
+        value, a_logits = self.nn(obs_tensor) # tensor output from NN
+
         # squeeze value from shape (num_obs, 1) to (num_obs)
         # (treat the value for an obs as a single number rather than an array)
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
         sum_exp_logits = np.sum(np.exp(a_logits), -1)
-
         a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits,-1) # apply softmax
+        sample_row = lambda row: np.random.choice(row.shape[0], p=row) # choose an index from each row
+        a_i = np.apply_along_axis(sample_row, 1, a_probs) # the row to sample from is the action dist (a_probs)
 
-        sample_row = lambda row: np.random.choice(row.shape[0], p=row)
-        a_i = np.apply_along_axis(sample_row, 1, a_probs)
         a_logit = a_logits[np.arange(a_logits.shape[0]),a_i]
 
         return a_i, value, a_logit, sum_exp_logits
 
 
-# This class will use the model to take actions in the environment.
+# This class will take actions in the environment, based on output from the model.
 # It will return a tuple of experience (observations[], actions[], rewards[]), along with the advantages it calculates
 # for each step
 class Runner(object):
-    def __init__(self, env, model, nsteps, gamma, lam):
-        self.env = env
+    def __init__(self, m_env, model, nsteps, gamma, lam):
+        # NOTE: m_env is actually a collection of envs.
+        # m_env's inputs/outputs should be a numpy array where the 1st dimension is num_envs
+        self.m_env = m_env
         self.model = model
         # initial observations
 
@@ -152,47 +158,42 @@ class Runner(object):
         self.nsteps = nsteps
 
     def run(self):
-
         # tracking data points for each step (specifically, each observation)
+        # (2+D arrays of shape (num_steps, num_envs) + whatever extra dimensions obs has
         stored_obs, stored_rewards, stored_actions, stored_vpreds, stored_a_logits, stored_sum_exp_logits = [], [], [], [], [], []
         stored_dones = []
 
         eval_time = 0
-        obs = self.env.reset() # first obs (so we actually have (nsteps+1) obs)
 
-        done = np.zeros((self.env.num_envs), dtype=bool)
-        reward = np.zeros((self.env.num_envs))
+        # ob is a 1D array of observations for each env
+        ob = self.m_env.reset() # first obs (so we actually have (nsteps+1) obs)
+
+        done = np.zeros((self.m_env.num_envs), dtype=bool)
+        reward = np.zeros((self.m_env.num_envs))
         for _ in range(self.nsteps):
 
             start = time.perf_counter()
-            obs_tensor = torch.tensor(obs, dtype=torch.float).to(device)
+            obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
 
             eval_time += time.perf_counter() - start
 
-            # if env contains multiple envs,
-            # first dimension of obs, action_index, etc. is # envs
-            stored_obs.append(obs)
+            # first dimension of obs, action_index, etc. is num_envs
+            stored_obs.append(ob)
             stored_actions.append(action_index)
             stored_vpreds.append(value)
             stored_a_logits.append(a_logit)
             if reward is None:
-                reward = np.zeros((self.env.num_envs))
+                reward = np.zeros((self.m_env.num_envs))
             stored_rewards.append(reward)
             stored_dones.append(done)
             stored_sum_exp_logits.append(se_logits)
 
-            obs, reward, done = self.env.step(action_index)
+            ob, reward, done = self.m_env.step(action_index)
             # experience is not recorded for the final step
 
-
-
-
-        _, last_value, _, _ = self.model.eval_and_sample(obs_tensor) # evaluate the final state
         # convert experience lists to numpy arrays
-        # (Do not convert to Pytorch tensors until feeding into network,
-        # (as the backprop computation graph starts being built from the first tensor)
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
         stored_a_logits = np.asarray(stored_a_logits, dtype=np.float32)
@@ -200,50 +201,45 @@ class Runner(object):
         stored_actions = np.asarray(stored_actions, dtype=np.float32)
         stored_vpreds = np.asarray(stored_vpreds, dtype=np.float32)
         stored_dones = np.asarray(stored_dones, dtype=np.bool)
-        print(stored_actions)
 
-
-        # use the stored values and rewards to calculate advantage estimates of the state-action pairs
-        # (see Generalized Advantage Estimation paper)
+        # use the values (from model) and rewards (from env) to calculate advantage estimates
+        # and new value targets for the state-action pairs
         stored_advs = np.zeros_like(stored_rewards)
+        _, last_value, _, _ = self.model.eval_and_sample(obs_tensor)  # value of the final step
 
         # Our adv. estimate is an exponentially-weighted average (EWA) over the n-step TD errors of the value of the state.
-        last_adv = np.zeros((self.env.num_envs))
+        # (see Generalized Advantage Estimation paper)
+        last_adv = np.zeros((self.m_env.num_envs))
         for t in reversed(range(self.nsteps)):
             # we will technically have (nsteps+1) steps,
-            # but data for the final step is not returned (as we cannot calculate a value target/adv for the last step)
+            # but will not return data for the final step (as we cannot calculate a value target/adv for the last step)
             # we just use it to calculate values/adv for the previous steps
             if t == self.nsteps - 1:
                 nextvalue = last_value
                 nextnotdones = 1.0 - done
-
             else:
                 nextvalue = stored_vpreds[t + 1]
-                # will contain 0 for any envs that are done at the next step,
-                # used to ensure the next-value used for curr step is 0
+                # will contain 0 for any envs that are done at step t+1
                 nextnotdones = 1.0 - stored_dones[t+1]
+
             current_value = stored_vpreds[t]
 
             # gamma is reward decay constant, lam is EWA "decay" constant
-
             delta = stored_rewards[t] + self.gamma * nextvalue * nextnotdones - current_value # one-step TD error
 
-            # the EWA of a step is equivalent to the decayed EWA of the next step + delta
+            # the EWA of a step is equivalent to delta + the decayed EWA of the next step
             # (so you have work backwards from the last step)
-
-
             stored_advs[t] = last_adv = (last_adv * self.gamma * self.lam * nextnotdones) + delta
 
-        # for each step, its prior value plus its advantage estimate
+        # for each step, its prior value plus its GAE advantage estimate
         # is exactly the TD-lambda value estimate (by definition)
-        # so stored_vtargets becomes the new target values for our Model's value function
+        # so stored_vtargets are the new target values for our Model's value function
         stored_vtargets = stored_advs + stored_vpreds
 
         arrs = (stored_obs, stored_rewards, stored_vpreds, stored_vtargets, stored_actions, stored_a_logits, stored_sum_exp_logits)
         return map(swap01_flatten, arrs)
 
 
-# used for multiple envs
 def swap01_flatten(arr):
     """
       This function will swap axis 0 (steps) and 1 (envs),
@@ -261,9 +257,9 @@ def function_wrap(val):
 
     return f
 
-# this function will call the runner for a certain number of steps,
-# arrange the returned experience into batches and feed it into the model,
-# then repeat
+# this function will call the runner for s_batch steps,
+# arrange the returned experience into minibatches and feed it into the model,
+# repeat until total_timesteps
 def learn(env, s_batch, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
           log_interval=1, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
@@ -309,9 +305,11 @@ def learn(env, s_batch, total_timesteps, lr,
 
 def obsConverter(obs):
     # changes observation's channel dimension to be it's 2nd
-    return np.transpose(obs, (0,3, 2, 1))
+    # (for our specific env)
+    return np.transpose(obs, (0, 3, 2, 1))
 
-# change this to work w/ diff envs
+# change this to work w/ your custom envs
+# 1st dimension of input/output should be num_envs, even if num_envs = 1
 class envWrapper():
     def __init__(self, env):
         self.env = env
@@ -323,7 +321,7 @@ class envWrapper():
         return obsConverter(self.env.reset())
 
     def step(self, action_index):
-        obs, reward, done, _ = self.env.step(action_index) # output is numpy array, we want list
+        obs, reward, done, _ = self.env.step(action_index)
         return obsConverter(obs), reward, done
 
 
