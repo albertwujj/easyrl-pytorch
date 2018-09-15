@@ -7,9 +7,8 @@ import math
 import time
 import random
 
-
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-from sonic_util import make_envs
+import sonic_util as sonic
 
 from atari_wrappers import WarpFrame, FrameStack
 
@@ -21,11 +20,9 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 """ A readable, thoroughly commented implementation of PPO
 """
 
-
-# TODO: CLEAN/COMMENT CODE
-# TODO: AUTOCALCULATE CNN CHANNEL SIZES
+# TODO: RECALCULATE BATCHES BASED ON ENV SIZES
+# TODO: TEST TEST TEST TEST
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
-# TODO: Reset env after done to continue adding steps to batch until hitting batch_size
 # TODO: Calculate the # of input channels for convolutional layers automatically
 # TODO: Add RNN support
 
@@ -33,30 +30,85 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 device = torch.device('cuda:0' if torch.cuda.is_available() and False else 'cpu')
 
 
+def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
+
+    def get_tuple(z):
+        if isinstance(z, tuple):
+            return z
+        else:
+            return z, z
+
+    kernel_size = get_tuple(kernel_size)
+    stride = get_tuple(stride)
+
+    if padding == 'same':
+        padding = tuple(((stride[i] * (in_shape[i] - 1) - in_shape[i] + kernel_size[i]) // 2) for i in (0,1))
+
+    conv_layer = nn.Conv2d(c_in, c_out, kernel_size=kernel_size, stride=stride, padding=padding)
+
+    out_shape = tuple((((in_shape[i] + 2 * padding[i] - kernel_size [i]) // stride[i] + 1) for i in (0,1)))
+
+
+    conv_layer = nn.Sequential(conv_layer,  nn.BatchNorm2d(c_out), nn.ReLU())
+
+    return conv_layer, out_shape
+
+
+
 # The neural network outputting both action and value
 class ConvNet(nn.Module):
-    def __init__(self, obs_length, num_actions):
+    def __init__(self, obs_shape, num_actions):
         super(ConvNet, self).__init__()
+
+        # shape of 2D input (cutting out batch and channel dims)
+        shape0 = (obs_shape[2], obs_shape[3])
+
+        c0 = obs_shape[1]  # num channels of input
+        c1 = 32  # num of output channels of first layer
+        c2 = 64
+        c3 = 64
+
+        fc_out = 512  # a choice
+
+
+        self.layer1, shape1 = conv(shape0, c0, c1, kernel_size=5, stride=1)
+        self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=3, stride=1)
+        self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
+
+        fc_in = shape3[0] * shape3[1] * c3
+        self.fc = nn.Linear(fc_in, fc_out)
+        self.fcAction = nn.Linear(fc_out, num_actions)
+        self.fcValue = nn.Linear(fc_out, 1)
+
+        """   
         self.layer1 = nn.Sequential(
-            nn.Conv2d(4, 5, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(5),
+            nn.Conv2d(c1, c2, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm2d(c2),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(5, 10, kernel_size=3, stride=1, padding=2),
-            nn.BatchNorm2d(10),
+            nn.Conv2d(c2, c3, kernel_size=3, stride=1, padding=2),
+            nn.BatchNorm2d(c3),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
-        self.fc = nn.Linear(4840, 10)
-        self.fcAction = nn.Linear(10, num_actions)
-        self.fcValue = nn.Linear(10, 1)
+        self.fc = nn.Linear(4840, c4)
+        self.fcAction = nn.Linear(c4, num_actions)
+        self.fcValue = nn.Linear(c4, 1)
+        """
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, np.sqrt(2))
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         out = self.layer1(x)
         out = self.layer2(out)
+        out = self.layer3(out)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
         return self.fcValue(out), self.fcAction(out)
+
 
 
 def calculateEntropy(logits):
@@ -65,6 +117,7 @@ def calculateEntropy(logits):
     z0 = torch.sum(ea0, -1, keepdim=True)
     p0 = ea0 / z0
     return torch.sum(p0 * (torch.log(z0) - a0), -1)
+
 
 # Will take steps of experience and calculate loss to minimize as per PPO
 # Predicts action distribution and value for each obs
@@ -131,7 +184,7 @@ class Model():
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
         sum_exp_logits = np.sum(np.exp(a_logits), -1)
-        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits,-1) # apply softmax
+        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits + 2e-5,-1) # apply softmax
         sample_row = lambda row: np.random.choice(row.shape[0], p=row) # choose an index from each row
         a_i = np.apply_along_axis(sample_row, 1, a_probs) # the row to sample from is the action dist (a_probs)
 
@@ -288,6 +341,7 @@ def learn(env, s_batch, total_timesteps, lr,
             np.random.shuffle(inds) # randomnly shuffle the steps into minibatches, for each epoch
             minibatches = 0
             s_minibatch = math.ceil(s_batch // nminibatches)
+            assert s_minibatch > 0
             for start in range(0, s_batch, s_minibatch):
                 end = start + s_minibatch
                 mb_inds = inds[start:end]  # the step indices for each minibatch
@@ -304,8 +358,8 @@ def learn(env, s_batch, total_timesteps, lr,
 
 
 def obsConverter(obs):
-    # changes observation's channel dimension to be it's 2nd
-    # (for our specific env)
+    # changes our env's observation's channel dimension to be it's 2nd
+    # (required by pytorch Conv layer)
     return np.transpose(obs, (0, 3, 2, 1))
 
 # change this to work w/ your custom envs
@@ -313,7 +367,8 @@ def obsConverter(obs):
 class envWrapper():
     def __init__(self, env):
         self.env = env
-        self.observation_space = env.observation_space.shape[0]
+        example_obs = np.expand_dims(np.zeros(env.observation_space.shape),0)
+        self.observation_space = obsConverter(example_obs).shape
         self.action_space = env.action_space.n
         self.num_envs = env.num_envs
 
@@ -326,28 +381,30 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(SubprocVecEnv(make_envs(num=2)))
-    model = learn(env, 300, 3e4, 2e-4)
-    total_reward = 0
-    for i in range(30):
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=2)))
+    model = learn(env, 1000, 1e5, 2e-4)
+    total_reward = 0.0
+    test_env = sonic.make_env()
+    for i in range(1):
         obs = env.reset()
         while True:
-            action_index, _, _, _ = model.eval_and_sample(torch.unsqueeze(torch.tensor(obs, dtype=torch.float).to(device), 0)) # need to unsqueeze eval output
+            action_index, _, _, _ = model.eval_and_sample(torch.tensor(obs, dtype=torch.float).to(device)) # need to unsqueeze eval output
             obs, reward, done = env.step(action_index)
-            total_reward += reward
-            if done:
+            total_reward += np.sum(reward)
+            if done.any():
                 break
-        print("{} testgames done".format(i))
+        print("{} testgames done".format(i + 1))
     total_reward_rand = 0
-    for i in range(30):
+    for i in range(1):
         obs = env.reset()
         while True:
-            obs, reward, done = env.step(env.env.action_space.sample())
-            total_reward_rand += reward
-            if done:
+            obs, reward, done = env.step([env.env.action_space.sample() for i in range(env.num_envs)])
+            total_reward += np.sum(reward)
+            if done.any():
                 break
-        print("{} testgames done".format(i))
+        print("{} testgames done".format(i + 1))
     print("total_reward: {}".format(total_reward))
     print("total_reward_rand: {}".format(total_reward_rand))
 
 test()
+
