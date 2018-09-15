@@ -42,6 +42,7 @@ class ConvNet(nn.Module):
         # shape of 2D input (cutting out batch and channel dims)
         shape0 = (obs_shape[2], obs_shape[3])
 
+
         c0 = obs_shape[1]  # num channels of input
         c1 = 5  # num of output channels of first layer
         c2 = 10
@@ -85,7 +86,6 @@ class ConvNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = out.view(out.size(0), -1)
-        print(out.shape)
         out = self.fc(out)
         return self.fcValue(out), self.fcAction(out)
 
@@ -207,6 +207,7 @@ class Runner(object):
 
             start = time.perf_counter()
             obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
+            print(obs_tensor.shape)
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
 

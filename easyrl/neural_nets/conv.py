@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 
+
 # wrapper for nn.Conv2D that calculates 'same' padding automatically
 def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
     def get_tuple(z):
@@ -19,6 +20,7 @@ def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
 
     out_shape = tuple((((in_shape[i] + 2 * padding[i] - kernel_size [i]) // stride[i] + 1) for i in (0,1)))
 
-    conv_layer = nn.Sequential(conv_layer,  nn.BatchNorm2d(c_out),  nn.ReLU())
+    conv_layer = nn.Sequential(conv_layer,  nn.BatchNorm2d(c_out), nn.MaxPool2d(kernel_size=2, stride=2),  nn.ReLU())
+    out_shape = tuple(((out_shape[i] - kernel_size[i]) // stride[i] + 1) for i in (0,1))
 
     return conv_layer, out_shape
