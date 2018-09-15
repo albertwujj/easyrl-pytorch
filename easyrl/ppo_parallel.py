@@ -85,6 +85,7 @@ class ConvNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = out.view(out.size(0), -1)
+        print(out.shape)
         out = self.fc(out)
         return self.fcValue(out), self.fcAction(out)
 
@@ -205,9 +206,7 @@ class Runner(object):
         for _ in range(self.nsteps):
 
             start = time.perf_counter()
-            print(obs_tensor.shape)
             obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
-            
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
 
