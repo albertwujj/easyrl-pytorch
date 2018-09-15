@@ -207,7 +207,6 @@ class Runner(object):
 
             start = time.perf_counter()
             obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
-            print(obs_tensor.shape)
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
 
@@ -357,7 +356,6 @@ class envWrapper():
 
 
 def test():
-    print(int(sys.argv[1]))
     env = envWrapper(SubprocVecEnv(sonic.make_envs(num=int(sys.argv[1]))))
     model = learn(env, int(sys.argv[2]), int(sys.argv[3]), 2e-4)
     total_reward = 0.0
