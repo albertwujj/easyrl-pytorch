@@ -356,7 +356,8 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(SubprocVecEnv(sonic.make_envs(int(sys.argv[1]))))
+    print(int(sys.argv[1]))
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=int(sys.argv[1]))))
     model = learn(env, int(sys.argv[2]), int(sys.argv[3]), 2e-4)
     total_reward = 0.0
     test_env = sonic.make_env()
