@@ -112,7 +112,6 @@ class Model():
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
 
         # convert data to tensors on device (either CPU or GPU)
-        print(obs.shape)
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
         v_target = torch.tensor(v_target, dtype=torch.float).to(device)
         obs = torch.tensor(obs, dtype=torch.float).to(device)
@@ -207,6 +206,7 @@ class Runner(object):
 
             start = time.perf_counter()
             obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
+            print(obs_tensor.shape)
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
 
