@@ -10,6 +10,7 @@ import random
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 import sonic_util as sonic
+from easyrl.neural_nets.conv import conv
 
 from atari_wrappers import WarpFrame, FrameStack
 
@@ -19,41 +20,19 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 
 
 """ A readable, thoroughly commented implementation of PPO
+    (everything in one file for tutorial purposes)
 """
 
-# TODO: RECALCULATE BATCHES BASED ON ENV SIZES
-# TODO: TEST TEST TEST TEST
+# TODO: Investigate why exploding value loss w/o maxpool layers
+# TODO: Comment conv, consider include in main file
+# TODO: Test performance against random
+# TODO: Test performance against OpenAI Baselines
+# TODO: Log losses, etc in same manner as OpenAI Baselines
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
-# TODO: Calculate the # of input channels for convolutional layers automatically
 # TODO: Add RNN support
 
 # Device configuration
 device = torch.device('cuda:0' if torch.cuda.is_available() and False else 'cpu')
-
-
-def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
-
-    def get_tuple(z):
-        if isinstance(z, tuple):
-            return z
-        else:
-            return z, z
-
-    kernel_size = get_tuple(kernel_size)
-    stride = get_tuple(stride)
-
-    if padding == 'same':
-        padding = tuple(((stride[i] * (in_shape[i] - 1) - in_shape[i] + kernel_size[i]) // 2) for i in (0,1))
-
-    conv_layer = nn.Conv2d(c_in, c_out, kernel_size=kernel_size, stride=stride, padding=padding)
-
-    out_shape = tuple((((in_shape[i] + 2 * padding[i] - kernel_size [i]) // stride[i] + 1) for i in (0,1)))
-
-
-    conv_layer = nn.Sequential(conv_layer,  nn.BatchNorm2d(c_out), nn.ReLU())
-
-    return conv_layer, out_shape
-
 
 
 # The neural network outputting both action and value
@@ -185,7 +164,6 @@ class Model():
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
         sum_exp_logits = np.sum(np.exp(a_logits), -1)
-        print(sum_exp_logits)
         a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits + 2e-5,-1) # apply softmax
         sample_row = lambda row: np.random.choice(row.shape[0], p=row) # choose an index from each row
         a_i = np.apply_along_axis(sample_row, 1, a_probs) # the row to sample from is the action dist (a_probs)
@@ -306,12 +284,6 @@ def swap01_flatten(arr):
     new_shape = (shape[0] * shape[1], *shape[2:]) # flatten 0 and 1
     return arr.reshape(new_shape)
 
-
-def function_wrap(val):
-    def f(_):
-        return val
-
-    return f
 
 # this function will call the runner for s_batch steps,
 # arrange the returned experience into minibatches and feed it into the model,
