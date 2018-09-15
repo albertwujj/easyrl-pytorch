@@ -64,9 +64,9 @@ class ConvNet(nn.Module):
         shape0 = (obs_shape[2], obs_shape[3])
 
         c0 = obs_shape[1]  # num channels of input
-        c1 = 32  # num of output channels of first layer
-        c2 = 64
-        c3 = 64
+        c1 = 5  # num of output channels of first layer
+        c2 = 10
+        c3 = 10
 
         fc_out = 512  # a choice
 
@@ -295,8 +295,9 @@ class Runner(object):
 
 def swap01_flatten(arr):
     """
-      This function will swap axis 0 (steps) and 1 (envs),
-      so the steps will be grouped by environment after flattening
+      This function will swap axis 0 (num steps) and 1 (num envs),
+      so the steps will be grouped by order rather than environment
+      after flattening
     """
     arr = arr.swapaxes(0, 1)
     shape = arr.shape
@@ -313,7 +314,7 @@ def function_wrap(val):
 # this function will call the runner for s_batch steps,
 # arrange the returned experience into minibatches and feed it into the model,
 # repeat until total_timesteps
-def learn(env, s_batch, total_timesteps, lr,
+def learn(env, s_env, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
           log_interval=1, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
           save_interval=10):
@@ -326,8 +327,8 @@ def learn(env, s_batch, total_timesteps, lr,
     ac_space = env.action_space
     total_timesteps = int(total_timesteps)
 
+    s_batch = s_env * env.num_envs
     n_batch = total_timesteps // s_batch
-
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
@@ -381,11 +382,11 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=2)))
-    model = learn(env, 1000, 1e5, 2e-4)
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=20)))
+    model = learn(env, 2000, 2e5, 2e-4)
     total_reward = 0.0
     test_env = sonic.make_env()
-    for i in range(1):
+    for i in range(30):
         obs = env.reset()
         while True:
             action_index, _, _, _ = model.eval_and_sample(torch.tensor(obs, dtype=torch.float).to(device)) # need to unsqueeze eval output
@@ -395,7 +396,7 @@ def test():
                 break
         print("{} testgames done".format(i + 1))
     total_reward_rand = 0
-    for i in range(1):
+    for i in range(30):
         obs = env.reset()
         while True:
             obs, reward, done = env.step([env.env.action_space.sample() for i in range(env.num_envs)])
