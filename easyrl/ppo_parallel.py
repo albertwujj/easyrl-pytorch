@@ -24,7 +24,6 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 """
 
 # TODO: Investigate why exploding value loss w/o maxpool layers
-# TODO: Comment conv, consider include in main file
 # TODO: Test performance against random
 # TODO: Test performance against OpenAI Baselines
 # TODO: Log losses, etc in same manner as OpenAI Baselines
@@ -55,7 +54,7 @@ class ConvNet(nn.Module):
         self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=3, stride=1)
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
-        fc_in = shape3[0] * shape3[1] * c3
+        fc_in = 1000
         self.fc = nn.Linear(fc_in, fc_out)
         self.fcAction = nn.Linear(fc_out, num_actions)
         self.fcValue = nn.Linear(fc_out, 1)
