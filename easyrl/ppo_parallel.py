@@ -5,6 +5,7 @@ import gym
 import retro
 import math
 import time
+import sys
 import random
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
@@ -184,6 +185,7 @@ class Model():
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
         sum_exp_logits = np.sum(np.exp(a_logits), -1)
+        print(sum_exp_logits)
         a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits + 2e-5,-1) # apply softmax
         sample_row = lambda row: np.random.choice(row.shape[0], p=row) # choose an index from each row
         a_i = np.apply_along_axis(sample_row, 1, a_probs) # the row to sample from is the action dist (a_probs)
@@ -382,8 +384,8 @@ class envWrapper():
 
 
 def test():
-    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=20)))
-    model = learn(env, 2000, 2e5, 2e-4)
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(sys.argv[1])))
+    model = learn(env, sys.argv[2], sys.argv[3], 2e-4)
     total_reward = 0.0
     test_env = sonic.make_env()
     for i in range(30):
