@@ -47,9 +47,9 @@ class ConvNet(nn.Module):
 
 
         c0 = obs_shape[1]  # num channels of input
-        c1 = 5  # num of output channels of first layer
-        c2 = 10
-        c3 = 10
+        c1 = 32  # num of output channels of first layer
+        c2 = 64
+        c3 = 64
 
         fc_out = 512  # a choice
 
@@ -59,7 +59,7 @@ class ConvNet(nn.Module):
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
         fc_in = 1000
-        self.fc = nn.Linear(fc_in, fc_out)
+        self.fc = nn.ReLU(nn.Linear(fc_in, fc_out))
         self.fcAction = nn.Linear(fc_out, num_actions)
         self.fcValue = nn.Linear(fc_out, 1)
 
@@ -121,7 +121,8 @@ class Model():
         ratio = torch.exp(selected_a_logit - a_logit_prev)  * sum_exp_logits_prev / sum_exp_logits
         a_loss = - adv * ratio
         a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
-        return .5 * torch.mean(torch.max(a_loss, a_loss_clipped))
+        approxkl = .5 * torch.mean((selected_a_logit - a_logit_prev) ** 2)
+        return .5 * torch.mean(torch.max(a_loss, a_loss_clipped)), approxkl 
 
     @staticmethod
     def calculateEntropy(logits):
@@ -146,11 +147,12 @@ class Model():
         sum_exp_logits_prev = torch.tensor(sum_exp_logits_prev, dtype=torch.float).to(device)
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
 
-        value, a_logit = self.nn(obs)
-        approxkl = .5 * torch.mean(torch.square(a_logit - a_logit_prev))
+        value, a_logits = self.nn(obs)
+
         v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
-        a_loss = Model.calculate_action_loss(a_logit, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
-        entropy = torch.mean(Model.calculateEntropy(a_logit))
+        a_loss, approx_kl = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
+        entropy = torch.mean(Model.calculateEntropy(a_logits))
+
 
         loss = a_loss + v_loss * self.vf_coef
         print(
