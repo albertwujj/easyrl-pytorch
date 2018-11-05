@@ -134,6 +134,10 @@ class Model():
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
 
+        advs = v_target - v_prev
+        # normalize advantages
+        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+
         # convert data to tensors on device (either CPU or GPU)
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
         v_target = torch.tensor(v_target, dtype=torch.float).to(device)
@@ -142,10 +146,11 @@ class Model():
         sum_exp_logits_prev = torch.tensor(sum_exp_logits_prev, dtype=torch.float).to(device)
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
 
-        value, a_logits = self.nn(obs)
+        value, a_logit = self.nn(obs)
+        approxkl = .5 * torch.reduce_mean(torch.square(a_logit - a_logit_prev))
         v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
-        a_loss = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
-        entropy = torch.mean(Model.calculateEntropy(a_logits))
+        a_loss = Model.calculate_action_loss(a_logit, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
+        entropy = torch.mean(Model.calculateEntropy(a_logit))
 
         loss = a_loss + v_loss * self.vf_coef
         print(
@@ -157,7 +162,7 @@ class Model():
         loss.backward()  # compute gradients
         self.optimizer.step()  # apply gradients
 
-        return v_loss.item(), a_loss.item(), loss.item(), entropy.item()
+        return v_loss.item(), a_loss.item(), approxkl.item()
 
     @staticmethod
     def sample_from_row(row, rand_seq=False):
@@ -396,7 +401,7 @@ def test():
                               save_interval=5)
 
     env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
-    model = learn(env=env_openAI, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4,  lam = 0.95,
+    model = learn(env=env, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4,  lam = 0.95,
     gamma = 0.99)
 
 
