@@ -315,7 +315,7 @@ def swap01_flatten(arr):
 # repeat until total_timesteps
 def learn(*, env, s_env, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
-          log_interval=1, nminibatches=20, epochs_per_batch=4, cliprange=0.1,
+          log_interval=1, nminibatches=8, epochs_per_batch=4, cliprange=0.1,
           save_interval=10):
     """
     VARIABLE NAMING CONVENTIONS
@@ -388,7 +388,23 @@ def test():
     total_timesteps= 4e5
     env_openAI = SubprocVecEnv(sonic.make_envs(num=num_envs))
 
-    total_reward_openAI = 0.0
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
+    model = learn(env=env, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4, lam=0.95,
+                  gamma=0.99)
+    total_reward = 0.0
+    for i in range(30):
+        obs = env.reset()
+        while True:
+            action_index, _, _, _ = model.eval_and_sample(
+                torch.tensor(obs, dtype=torch.float).to(device))  # need to unsqueeze eval output
+            obs, reward, done = env.step(action_index)
+            print(reward)
+            total_reward += np.sum(reward)
+            if done.all():
+                break
+        print("{} testgames done".format(i + 1))
+
+
     model_openAI = ppo2.learn(network="cnn", env=env_openAI, total_timesteps=total_timesteps, nsteps=s_env,
                               nminibatches=8,
                               lam=0.95,
@@ -399,13 +415,7 @@ def test():
                               lr=lambda _: 3e-4,
                               cliprange=lambda _: 0.1,
                               save_interval=5)
-
-    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
-    model = learn(env=env, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4,  lam = 0.95,
-    gamma = 0.99)
-
-
-
+    total_reward_openAI = 0.0
     for i in range(30):
         obs = env_openAI.reset()
         done = np.zeros((env.num_envs), dtype=bool)
@@ -418,22 +428,7 @@ def test():
                 break
         print("{} testgames done".format(i + 1))
 
-    total_reward = 0.0
-    for i in range(30):
-        obs = env.reset()
-        while True:
-            action_index, _, _, _ = model.eval_and_sample(torch.tensor(obs, dtype=torch.float).to(device)) # need to unsqueeze eval output
-            obs, reward, done = env.step(action_index)
-            print(reward)
-            total_reward += np.sum(reward)
-            if done.all():
-                break
-        print("{} testgames done".format(i + 1))
-    total_reward = 0
-
-
-
-    total_reward_rand = 0
+    total_reward_rand = 0.0
     for i in range(30):
         obs = env.reset()
         while True:
