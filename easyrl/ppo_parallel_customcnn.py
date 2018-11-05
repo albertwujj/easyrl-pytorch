@@ -5,14 +5,10 @@ import gym
 import retro
 import math
 import time
-import sys
 import random
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 import sonic_util as sonic
-from easyrl.neural_nets.conv import conv
-
-from baselines.ppo2 import ppo2
 
 from atari_wrappers import WarpFrame, FrameStack
 
@@ -22,15 +18,12 @@ logging.basicConfig(filename="losses.log", level=logging.DEBUG)
 
 
 """ A readable, thoroughly commented implementation of PPO
-    (everything in one file for tutorial purposes)
 """
 
-
-
-# TODO: Investigate why exploding value loss w/o maxpool layers
-# TODO: Test performance against OpenAI Baselines
-# TODO: Log losses, etc in same manner as OpenAI Baselines
+# TODO: RECALCULATE BATCHES BASED ON ENV SIZES
+# TODO: TEST TEST TEST TEST
 # TODO: Keep track of action probs more efficiently (stop using sum_exp_logit)
+# TODO: Calculate the # of input channels for convolutional layers automatically
 # TODO: Add RNN support
 
 # Device configuration
@@ -42,55 +35,46 @@ class ConvNet(nn.Module):
     def __init__(self, obs_shape, num_actions):
         super(ConvNet, self).__init__()
 
-        # shape of 2D input (cutting out batch and channel dims)
-        shape0 = (obs_shape[2], obs_shape[3])
+        # channel sizes of inputs to layers
+        c_1 = obs_shape[1] # Channel dim. for inputs to nn.Conv2D is 1
+        c_2 = 5
+        c_3 = 10
+        c_4 = 100
 
-
-        c0 = obs_shape[1]  # num channels of input
-        c1 = 5  # num of output channels of first layer
-        c2 = 10
-        c3 = 10
-
-        fc_out = 512  # a choice
-
-
-        self.layer1, shape1 = conv(shape0, c0, c1, kernel_size=5, stride=1)
-        self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=3, stride=1)
-        self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
-
-        fc_in = 1000
-        self.fc = nn.Linear(fc_in, fc_out)
-        self.fcAction = nn.Linear(fc_out, num_actions)
-        self.fcValue = nn.Linear(fc_out, 1)
-
-        """   
         self.layer1 = nn.Sequential(
-            nn.Conv2d(c1, c2, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(c2),
+            nn.Conv2d(c_1, c_2, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm2d(c_2),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(c2, c3, kernel_size=3, stride=1, padding=2),
-            nn.BatchNorm2d(c3),
+            nn.Conv2d(c_2, c_3, kernel_size=3, stride=1, padding=2),
+            nn.BatchNorm2d(c_3),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
-        self.fc = nn.Linear(4840, c4)
-        self.fcAction = nn.Linear(c4, num_actions)
-        self.fcValue = nn.Linear(c4, 1)
-        """
+        self.fc = nn.Linear(4840, c_4)
+        self.fcAction = nn.Linear(c_4, num_actions)
+        self.fcValue = nn.Linear(c_4, 1)
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight, np.sqrt(2))
-                nn.init.constant_(m.bias, 0)
+            if isinstance(m, nn.Conv2d):
+                nn.init.orthogonal(m.weight, np.sqrt(2))
 
     def forward(self, x):
         out = self.layer1(x)
         out = self.layer2(out)
-        out = self.layer3(out)
         out = out.view(out.size(0), -1)
         out = self.fc(out)
         return self.fcValue(out), self.fcAction(out)
+
+
+
+
+def calculateEntropy(logits):
+    a0 = logits - torch.max(logits, -1, keepdim=True)[0]
+    ea0 = torch.exp(a0)
+    z0 = torch.sum(ea0, -1, keepdim=True)
+    p0 = ea0 / z0
+    return torch.sum(p0 * (torch.log(z0) - a0), -1)
 
 
 # Will take steps of experience and calculate loss to minimize as per PPO
@@ -102,34 +86,6 @@ class Model():
             = obs_space, ac_space, nsteps, vf_coef
         self.optimizer = torch.optim.Adam(self.nn.parameters(), lr=lr)
         self.vf_coef = vf_coef
-
-    @staticmethod
-    def calculate_value_loss(value, v_prev, cliprange, v_target):
-        v_clipped = torch.clamp(value - v_prev, -cliprange, cliprange) + v_prev
-        v_loss = (value - v_target) ** 2
-        v_loss_clipped = (v_clipped - v_target) ** 2
-        # model will minimize the clipped or the non-clipped loss, whichever is greater
-        return .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
-
-    @staticmethod
-    def calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev):
-        sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
-        # the unscaled log of the actual action dist. probabilities, as no softmax has been applied.
-        selected_a_logit = a_logits[np.arange(a_logits.shape[0]), [i for i in action_index]]
-        adv = v_target - v_prev
-        # equivalent to dividing the predicted prob. by the previous predicted prob.
-        ratio = torch.exp(selected_a_logit - a_logit_prev)  * sum_exp_logits_prev / sum_exp_logits
-        a_loss = - adv * ratio
-        a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
-        return .5 * torch.mean(torch.max(a_loss, a_loss_clipped))
-
-    @staticmethod
-    def calculateEntropy(logits):
-        a0 = logits - torch.max(logits, -1, keepdim=True)[0]
-        ea0 = torch.exp(a0)
-        z0 = torch.sum(ea0, -1, keepdim=True)
-        p0 = ea0 / z0
-        return torch.sum(p0 * (torch.log(z0) - a0), -1)
 
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
@@ -143,13 +99,28 @@ class Model():
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
 
         value, a_logits = self.nn(obs)
-        v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
-        a_loss = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
-        entropy = torch.mean(Model.calculateEntropy(a_logits))
+        # VALUE LOSS
+        v_clipped = torch.clamp(value - v_prev, -cliprange, cliprange) + v_prev
+        v_loss = (value - v_target) ** 2
+        v_loss_clipped = (v_clipped - v_target) ** 2
+        # model will minimize the clipped or the non-clipped loss, whichever is greater
+        v_loss_final = .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
 
-        loss = a_loss + v_loss * self.vf_coef
+        # PPO ACTION LOSS
+        sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
+        entropy = torch.mean(calculateEntropy(a_logits))
+        # the unscaled log of the actual action dist. probabilities, as no softmax has been applied.
+        selected_a_logit = a_logits[np.arange(a_logits.shape[0]), [i for i in action_index]]
+        adv = v_target - v_prev
+        # equivalent to dividing the predicted prob. by the previous predicted prob.
+        ratio = torch.exp(selected_a_logit - a_logit_prev) / (sum_exp_logits * sum_exp_logits_prev)
+        a_loss = - adv * ratio
+        a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
+        a_loss_final = .5 * torch.mean(torch.max(a_loss, a_loss_clipped))
+
+        loss = a_loss_final + v_loss_final * self.vf_coef
         print(
-            "a_loss {}, v_loss {}, entropy {} loss {}".format(a_loss.item(), v_loss.item(), entropy.item(),
+            "a_loss {}, v_loss {}, entropy {} loss {}".format(a_loss_final.item(), v_loss_final.item(), entropy.item(),
                                                               loss.item()))
 
         # GRADIENT DESCENT
@@ -157,40 +128,28 @@ class Model():
         loss.backward()  # compute gradients
         self.optimizer.step()  # apply gradients
 
-        return v_loss.item(), a_loss.item(), loss.item(), entropy.item()
+        return v_loss_final.item(), a_loss_final.item(), loss.item(), entropy.item()
 
-    @staticmethod
-    def sample_from_row(row, rand_seq=False):
-        if not rand_seq:
-            return np.random.choice(row.shape[0], p=row)
-        else:
-            curr_sum = 0
-            for i,x in enumerate(row):
-                if row[len(row) - 1] < curr_sum + x:
-                    return i
-                curr_sum += x
-
-    @staticmethod
-    def sample_and_sum_logits(value, a_logits, rand_seq=None):
-        sum_exp_logits = np.sum(np.exp(a_logits), -1)
-        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits + 2e-5, -1)  # apply softmax
-        sample_row = lambda row: Model.sample_from_row(row, rand_seq is not None)
-        if rand_seq is not None:
-            a_probs = np.concatenate((a_probs, rand_seq), 1)
-        a_i = np.apply_along_axis(sample_row, 1, a_probs)  # the row to sample from is the action dist (a_probs)
-        a_logit = a_logits[np.arange(a_logits.shape[0]), a_i]
-        return a_i, value, a_logit, sum_exp_logits
-
-
+    # NOTE: tensors/arrays w/ singular names are actually 1D
     def eval_and_sample(self, obs_tensor):
         """
-        first dimension of value, a_logits is # of observations
+        first dimension of everything is # of observations
         """
         value, a_logits = self.nn(obs_tensor) # tensor output from NN
+
         # squeeze value from shape (num_obs, 1) to (num_obs)
+        # (treat the value for an obs as a single number rather than an array)
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
-        return Model.sample_and_sum_logits(value, a_logits)
+        sum_exp_logits = np.sum(np.exp(a_logits), -1)
+        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits,-1) # apply softmax
+        sample_row = lambda row: np.random.choice(row.shape[0], p=row) # choose an index from each row
+        a_i = np.apply_along_axis(sample_row, 1, a_probs) # the row to sample from is the action dist (a_probs)
+
+        a_logit = a_logits[np.arange(a_logits.shape[0]),a_i]
+
+        return a_i, value, a_logit, sum_exp_logits
+
 
 # This class will take actions in the environment, based on output from the model.
 # It will return a tuple of experience (observations[], actions[], rewards[]), along with the advantages it calculates
@@ -233,7 +192,6 @@ class Runner(object):
 
             # first dimension of obs, action_index, etc. is num_envs
             stored_obs.append(ob)
-
             stored_actions.append(action_index)
             stored_vpreds.append(value)
             stored_a_logits.append(a_logit)
@@ -296,8 +254,7 @@ class Runner(object):
 def swap01_flatten(arr):
     """
       This function will swap axis 0 (steps) and 1 (envs),
-      so the steps will be grouped by environment
-      after flattening
+      so the steps will be grouped by environment after flattening
     """
     arr = arr.swapaxes(0, 1)
     shape = arr.shape
@@ -305,10 +262,16 @@ def swap01_flatten(arr):
     return arr.reshape(new_shape)
 
 
+def function_wrap(val):
+    def f(_):
+        return val
+
+    return f
+
 # this function will call the runner for s_batch steps,
 # arrange the returned experience into minibatches and feed it into the model,
 # repeat until total_timesteps
-def learn(*, env, s_env, total_timesteps, lr,
+def learn(env, s_batch, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
           log_interval=1, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
           save_interval=10):
@@ -321,8 +284,8 @@ def learn(*, env, s_env, total_timesteps, lr,
     ac_space = env.action_space
     total_timesteps = int(total_timesteps)
 
-    s_batch = s_env * env.num_envs
     n_batch = total_timesteps // s_batch
+
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
     runner = Runner(env, model, s_batch, gamma, lam)
@@ -336,7 +299,6 @@ def learn(*, env, s_env, total_timesteps, lr,
             np.random.shuffle(inds) # randomnly shuffle the steps into minibatches, for each epoch
             minibatches = 0
             s_minibatch = math.ceil(s_batch // nminibatches)
-            assert s_minibatch > 0
             for start in range(0, s_batch, s_minibatch):
                 end = start + s_minibatch
                 mb_inds = inds[start:end]  # the step indices for each minibatch
@@ -375,74 +337,32 @@ class envWrapper():
         return obsConverter(obs), reward, done
 
 
-
-
 def test():
-    num_envs = 8
-    s_env = 4096
-    total_timesteps= 4e5
-    env_openAI = SubprocVecEnv(sonic.make_envs(num=num_envs))
-
-    total_reward_openAI = 0.0
-    model_openAI = ppo2.learn(network="cnn", env=env_openAI, total_timesteps=total_timesteps, nsteps=4096,
-                              nminibatches=8,
-                              lam=0.95,
-                              gamma=0.99,
-                              noptepochs=3,
-                              log_interval=1,
-                              ent_coef=0.01,
-                              lr=lambda _: 3e-4,
-                              cliprange=lambda _: 0.1,
-                              save_interval=5)
-
-    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
-    model = learn(env=env_openAI, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4,  lam = 0.95,
-    gamma = 0.99)
-
-
-
-    for i in range(30):
-        obs = env_openAI.reset()
-        done = np.zeros((env.num_envs), dtype=bool)
-        while True:
-            action_index, values,_, neglogpacs = model_openAI.step(obs, S=None, M=done)
-            obs, reward, done = env_openAI.step(action_index)
-            print(reward)
-            total_reward_openAI += np.sum(reward)
-            if done.all():
-                break
-        print("{} testgames done".format(i + 1))
-
+    env = envWrapper(SubprocVecEnv(sonic.make_envs(num=1)))
+    model = learn(env, 20, 0, 1e6)
     total_reward = 0.0
-    for i in range(30):
+    test_env = sonic.make_env()
+    for i in range(1):
         obs = env.reset()
         while True:
             action_index, _, _, _ = model.eval_and_sample(torch.tensor(obs, dtype=torch.float).to(device)) # need to unsqueeze eval output
             obs, reward, done = env.step(action_index)
-            print(reward)
             total_reward += np.sum(reward)
-            if done.all():
+            if done.any():
                 break
         print("{} testgames done".format(i + 1))
-    total_reward = 0
-
-
-
     total_reward_rand = 0
-    for i in range(30):
+    for i in range(1):
         obs = env.reset()
         while True:
             obs, reward, done = env.step([env.env.action_space.sample() for i in range(env.num_envs)])
-            print(reward)
-            total_reward_rand += np.sum(reward)
-            if done.all():
+            total_reward += np.sum(reward)
+            if done.any():
                 break
         print("{} testgames done".format(i + 1))
-        print("")
-
-    print("total_reward_openAI: {}".format(total_reward_openAI))
     print("total_reward: {}".format(total_reward))
     print("total_reward_rand: {}".format(total_reward_rand))
 
-
 test()
+
+def make_env():
