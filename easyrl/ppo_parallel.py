@@ -315,7 +315,7 @@ def swap01_flatten(arr):
 # repeat until total_timesteps
 def learn(*, env, s_env, total_timesteps, lr,
           vf_coef=0.5, max_grad_norm=0.5, gamma=0.99, lam=0.95,
-          log_interval=1, nminibatches=4, epochs_per_batch=4, cliprange=0.1,
+          log_interval=1, nminibatches=20, epochs_per_batch=4, cliprange=0.1,
           save_interval=10):
     """
     VARIABLE NAMING CONVENTIONS
