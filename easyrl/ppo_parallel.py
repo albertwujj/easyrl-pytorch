@@ -330,7 +330,7 @@ def learn(*, env, s_env, total_timesteps, lr,
     n_batch = total_timesteps // s_batch
 
     model = Model(ob_space, ac_space, s_batch, vf_coef, lr)
-    runner = Runner(env, model, s_batch, gamma, lam)
+    runner = Runner(env, model, s_env, gamma, lam)
 
 
     for batch in range(n_batch):
@@ -389,7 +389,7 @@ def test():
     env_openAI = SubprocVecEnv(sonic.make_envs(num=num_envs))
 
     total_reward_openAI = 0.0
-    model_openAI = ppo2.learn(network="cnn", env=env_openAI, total_timesteps=total_timesteps, nsteps=4096,
+    model_openAI = ppo2.learn(network="cnn", env=env_openAI, total_timesteps=total_timesteps, nsteps=s_env,
                               nminibatches=8,
                               lam=0.95,
                               gamma=0.99,
