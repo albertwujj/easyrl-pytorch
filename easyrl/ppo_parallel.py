@@ -147,7 +147,7 @@ class Model():
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
 
         value, a_logit = self.nn(obs)
-        approxkl = .5 * torch.reduce_mean(torch.square(a_logit - a_logit_prev))
+        approxkl = .5 * torch.mean(torch.square(a_logit - a_logit_prev))
         v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
         a_loss = Model.calculate_action_loss(a_logit, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
         entropy = torch.mean(Model.calculateEntropy(a_logit))
@@ -384,9 +384,9 @@ class envWrapper():
 
 def test():
     num_envs = 8
-    s_env = 4096
+    s_env = 2048
     total_timesteps= 4e5
-    env_openAI = SubprocVecEnv(sonic.make_envs(num=num_envs))
+
 
     env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
     model = learn(env=env, s_env=s_env, total_timesteps=total_timesteps, lr=3e-4, lam=0.95,
@@ -404,7 +404,7 @@ def test():
                 break
         print("{} testgames done".format(i + 1))
 
-
+    env_openAI = SubprocVecEnv(sonic.make_envs(num=num_envs))
     model_openAI = ppo2.learn(network="cnn", env=env_openAI, total_timesteps=total_timesteps, nsteps=s_env,
                               nminibatches=8,
                               lam=0.95,
