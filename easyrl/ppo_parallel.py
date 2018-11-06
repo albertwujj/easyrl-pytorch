@@ -338,7 +338,7 @@ def learn(*, env, s_env, total_timesteps, lr,
                 minibatches += 1
                 print("{}, {}, {} b e mb".format(update + 1, epoch + 1, minibatches))
         if update == 1 or update % log_interval == 0:
-            logging.debug("Batch {}\nTimesteps: {}\nLosses (v,a,total,entropy): {}\n".format(update, loss_arr))
+            logging.debug("Batch {}\nTimesteps: {}\nLosses (v,a,total,entropy): {}\n".format(update, s_batch * update, loss_arr))
 
     return model
 
