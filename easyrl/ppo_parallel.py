@@ -8,6 +8,8 @@ import time
 import sys
 import random
 
+from baselines.common import explained_variance
+
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 import sonic_util as sonic
 from easyrl.neural_nets.conv import conv
@@ -316,7 +318,7 @@ def learn(*, env, s_env, total_timesteps, lr,
     runner = Runner(env, model, s_env, gamma, lam)
 
 
-    for batch in range(n_batch):
+    for update in range(n_batch):
         loss_arr = []
         obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
         inds = np.arange(s_batch)
@@ -334,9 +336,9 @@ def learn(*, env, s_env, total_timesteps, lr,
                 loss_arr.append(model.train(*slices, cliprange))
                 #print("train_time: {}".format(time.perf_counter() - start))
                 minibatches += 1
-                print("{}, {}, {} b e mb".format(batch + 1, epoch + 1, minibatches))
-        if batch != 0 and batch % log_interval == 0:
-            logging.debug("Batch {}, losses (v,a,total,entropy)= {}".format(batch, loss_arr))
+                print("{}, {}, {} b e mb".format(update + 1, epoch + 1, minibatches))
+        if update == 1 or update % log_interval == 0:
+            logging.debug("Batch {}\nTimesteps: {}\nLosses (v,a,total,entropy): {}\n".format(update, loss_arr))
 
     return model
 
@@ -369,7 +371,7 @@ class envWrapper():
 def test():
     num_envs = 8
     s_env = 2048
-    total_timesteps= 4e4
+    total_timesteps= int(sys.argv[1])
 
 
     env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
