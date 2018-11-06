@@ -7,6 +7,7 @@ import math
 import time
 import sys
 import random
+from timeit import default_timer as timer
 
 from baselines.common import explained_variance
 
@@ -320,7 +321,9 @@ def learn(*, env, s_env, total_timesteps, lr,
 
     for update in range(n_batch):
         loss_arr = []
+        start = timer()
         obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
+        print("run_time: {}".format(timer() - start))
         inds = np.arange(s_batch)
         for epoch in range(epochs_per_batch):
 
@@ -332,9 +335,9 @@ def learn(*, env, s_env, total_timesteps, lr,
                 end = start + s_minibatch
                 mb_inds = inds[start:end]  # the step indices for each minibatch
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev, se_logits))
-                start = time.perf_counter()
+                start = timer()
                 loss_arr.append(model.train(*slices, cliprange))
-                #print("train_time: {}".format(time.perf_counter() - start))
+                print("train_mbatch_time: {}".format(timer() - start))
                 minibatches += 1
                 print("{}, {}, {} b e mb".format(update + 1, epoch + 1, minibatches))
         if update == 1 or update % log_interval == 0:
