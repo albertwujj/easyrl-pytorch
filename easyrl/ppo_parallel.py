@@ -135,9 +135,7 @@ class Model():
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
 
-
-
-        # convert data to tensors on device (either CPU or GPU)
+        # convert data from Runner to tensors
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
         v_target = torch.tensor(v_target, dtype=torch.float).to(device)
         obs = torch.tensor(obs, dtype=torch.float).to(device)
@@ -145,15 +143,13 @@ class Model():
         sum_exp_logits_prev = torch.tensor(sum_exp_logits_prev, dtype=torch.float).to(device)
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
         adv = v_target - v_prev
-        # normalize advantages
-        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
+        adv = (adv - adv.mean()) / (adv.std() + 1e-8) # normalize advantages
         value, a_logits = self.nn(obs)
 
         v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
         a_loss, approxkl = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, adv)
         entropy = torch.mean(Model.calculateEntropy(a_logits))
-
 
         loss = a_loss + v_loss * self.vf_coef
         print(
@@ -331,7 +327,6 @@ def learn(*, env, s_env, total_timesteps, lr,
             s_minibatch = math.ceil(s_batch // nminibatches)
             assert s_minibatch > 0
             for start in range(0, s_batch, s_minibatch):
-                print("1 minibatch")
                 end = start + s_minibatch
                 mb_inds = inds[start:end]  # the step indices for each minibatch
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev, se_logits))
@@ -375,7 +370,7 @@ class envWrapper():
 def test():
     num_envs = 8
     s_env = 2048
-    total_timesteps= 4e5
+    total_timesteps= 4e4
 
 
     env = envWrapper(SubprocVecEnv(sonic.make_envs(num=num_envs)))
@@ -388,7 +383,6 @@ def test():
             action_index, _, _, _ = model.eval_and_sample(
                 torch.tensor(obs, dtype=torch.float).to(device))  # need to unsqueeze eval output
             obs, reward, done = env.step(action_index)
-            print(reward)
             total_reward += np.sum(reward)
             if done.all():
                 break
@@ -412,7 +406,6 @@ def test():
         while True:
             action_index, values,_, neglogpacs = model_openAI.step(obs, S=None, M=done)
             obs, reward, done = env_openAI.step(action_index)
-            print(reward)
             total_reward_openAI += np.sum(reward)
             if done.all():
                 break
@@ -423,7 +416,6 @@ def test():
         obs = env.reset()
         while True:
             obs, reward, done = env.step([env.env.action_space.sample() for i in range(env.num_envs)])
-            print(reward)
             total_reward_rand += np.sum(reward)
             if done.all():
                 break
