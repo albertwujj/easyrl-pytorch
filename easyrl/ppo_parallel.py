@@ -47,14 +47,14 @@ class ConvNet(nn.Module):
 
 
         c0 = obs_shape[1]  # num channels of input
-        c1 = 3  # num of output channels of first layer
-        c2 = 6
-        c3 = 6
+        c1 = 32  # num of output channels of first layer
+        c2 = 64
+        c3 = 64
 
         fc_out = 512  # a choice
 
 
-        self.layer1, shape1 = conv(shape0, c0, c1, kernel_size=8, stride=4)
+        self.layer1, shape1 = conv(shape0, c0, c1, kernel_size=3, stride=4)
         self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=4, stride=2)
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
