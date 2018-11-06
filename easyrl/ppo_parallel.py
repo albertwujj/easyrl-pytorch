@@ -58,8 +58,8 @@ class ConvNet(nn.Module):
         self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=3, stride=1)
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
-        fc_in = 1000
-        self.fc = nn.ReLU(nn.Linear(fc_in, fc_out))
+        fc_in = 6400
+        self.fc = nn.Sequential(nn.ReLU(), nn.Linear(fc_in, fc_out))
         self.fcAction = nn.Linear(fc_out, num_actions)
         self.fcValue = nn.Linear(fc_out, 1)
 
@@ -122,7 +122,7 @@ class Model():
         a_loss = - adv * ratio
         a_loss_clipped = - adv * torch.clamp(ratio, 1.0 - cliprange, cliprange)
         approxkl = .5 * torch.mean((selected_a_logit - a_logit_prev) ** 2)
-        return .5 * torch.mean(torch.max(a_loss, a_loss_clipped)), approxkl 
+        return .5 * torch.mean(torch.max(a_loss, a_loss_clipped)), approxkl
 
     @staticmethod
     def calculateEntropy(logits):
