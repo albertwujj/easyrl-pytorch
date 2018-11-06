@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 # wrapper for nn.Conv2D that calculates 'same' padding automatically
-def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
+def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='valid'):
     def get_tuple(z):
         if isinstance(z, tuple):
             return z
@@ -12,6 +12,7 @@ def conv(in_shape, c_in, c_out, kernel_size=3, stride=1, padding ='same'):
             return z, z
     kernel_size = get_tuple(kernel_size)
     stride = get_tuple(stride)
+    padding = (0,0)
     if padding == 'same':
         # formula for 'same' padding
         padding = tuple(((stride[i] * (in_shape[i] - 1) - in_shape[i] + kernel_size[i]) // 2) for i in (0,1))

@@ -47,9 +47,9 @@ class ConvNet(nn.Module):
 
 
         c0 = obs_shape[1]  # num channels of input
-        c1 = 32  # num of output channels of first layer
-        c2 = 64
-        c3 = 64
+        c1 = 3  # num of output channels of first layer
+        c2 = 6
+        c3 = 6
 
         fc_out = 512  # a choice
 
@@ -58,7 +58,7 @@ class ConvNet(nn.Module):
         self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=4, stride=2)
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
-        fc_in = 173056
+        fc_in = 16224
         self.fc = nn.Sequential(nn.ReLU(), nn.Linear(fc_in, fc_out))
         self.fcAction = nn.Linear(fc_out, num_actions)
         self.fcValue = nn.Linear(fc_out, 1)
@@ -201,6 +201,7 @@ class Runner(object):
         self.nsteps = nsteps
 
     def run(self):
+        print("run 1")
         # tracking data points for each step (specifically, each observation)
         # (2+D arrays of shape (num_steps, num_envs) + whatever extra dimensions obs has
         stored_obs, stored_rewards, stored_actions, stored_vpreds, stored_a_logits, stored_sum_exp_logits = [], [], [], [], [], []
@@ -219,7 +220,6 @@ class Runner(object):
             obs_tensor = torch.tensor(ob, dtype=torch.float).to(device)
             action_index, value, a_logit, se_logits = self.model.eval_and_sample(obs_tensor)
 
-
             eval_time += time.perf_counter() - start
 
             # first dimension of obs, action_index, etc. is num_envs
@@ -237,6 +237,7 @@ class Runner(object):
             ob, reward, done = self.m_env.step(action_index)
             # experience is not recorded for the final step
 
+        print("run done")
         # convert experience lists to numpy arrays
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
@@ -324,11 +325,13 @@ def learn(*, env, s_env, total_timesteps, lr,
         obs, reward, v_prev, v_target, action_index, a_logit_prev, se_logits = runner.run() # collect a batch of data
         inds = np.arange(s_batch)
         for epoch in range(epochs_per_batch):
+
             np.random.shuffle(inds) # randomnly shuffle the steps into minibatches, for each epoch
             minibatches = 0
             s_minibatch = math.ceil(s_batch // nminibatches)
             assert s_minibatch > 0
             for start in range(0, s_batch, s_minibatch):
+                print("1 minibatch")
                 end = start + s_minibatch
                 mb_inds = inds[start:end]  # the step indices for each minibatch
                 slices = (arr[mb_inds] for arr in (obs, v_prev, v_target, action_index, a_logit_prev, se_logits))
@@ -338,6 +341,7 @@ def learn(*, env, s_env, total_timesteps, lr,
                 minibatches += 1
                 print("{}, {}, {} b e mb".format(batch + 1, epoch + 1, minibatches))
         if batch != 0 and batch % log_interval == 0:
+
             logging.debug("Batch {}, losses (v,a,total,entropy)= {}".format(batch, loss_arr))
 
     return model
