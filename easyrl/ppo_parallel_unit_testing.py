@@ -85,7 +85,6 @@ class ConvNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        x = x / 255
         out = self.layer1(x)
         out = self.layer2(out)
         out = self.layer3(out)
@@ -113,10 +112,11 @@ class Model():
         return .5 * torch.mean(torch.max(v_loss, v_loss_clipped))
 
     @staticmethod
-    def calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, adv):
+    def calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev):
         sum_exp_logits = torch.sum(torch.exp(a_logits), -1)
         # the unscaled log of the actual action dist. probabilities, as no softmax has been applied.
         selected_a_logit = a_logits[np.arange(a_logits.shape[0]), [i for i in action_index]]
+        adv = v_target - v_prev
         # equivalent to dividing the predicted prob. by the previous predicted prob.
         ratio = torch.exp(selected_a_logit - a_logit_prev)  * sum_exp_logits_prev / sum_exp_logits
         a_loss = - adv * ratio
@@ -135,9 +135,9 @@ class Model():
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
 
-        adv = v_target - v_prev
+        advs = v_target - v_prev
         # normalize advantages
-        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
 
         # convert data to tensors on device (either CPU or GPU)
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
@@ -150,7 +150,7 @@ class Model():
         value, a_logits = self.nn(obs)
 
         v_loss = Model.calculate_value_loss(value, v_prev, cliprange, v_target)
-        a_loss, approxkl = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, adv)
+        a_loss, approxkl = Model.calculate_action_loss(a_logits, action_index, a_logit_prev, cliprange, sum_exp_logits_prev, v_target, v_prev)
         entropy = torch.mean(Model.calculateEntropy(a_logits))
 
 
@@ -166,6 +166,29 @@ class Model():
 
         return v_loss.item(), a_loss.item(), approxkl.item()
 
+    @staticmethod
+    def sample_from_row(row, rand_seq=False):
+        if not rand_seq:
+            return np.random.choice(row.shape[0], p=row)
+        else:
+            curr_sum = 0
+            for i,x in enumerate(row):
+                if row[len(row) - 1] < curr_sum + x:
+                    return i
+                curr_sum += x
+
+    @staticmethod
+    def sample_and_sum_logits(value, a_logits, rand_seq=None):
+        sum_exp_logits = np.sum(np.exp(a_logits), -1)
+        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits, -1)  # apply softmax
+        sample_row = lambda row: Model.sample_from_row(row, rand_seq is not None)
+        if rand_seq is not None:
+            a_probs = np.concatenate((a_probs, rand_seq), 1)
+        a_i = np.apply_along_axis(sample_row, 1, a_probs)  # the row to sample from is the action dist (a_probs)
+        a_logit = a_logits[np.arange(a_logits.shape[0]), a_i]
+        return a_i, value, a_logit, sum_exp_logits
+
+
     def eval_and_sample(self, obs_tensor):
         """
         first dimension of value, a_logits is # of observations
@@ -174,14 +197,7 @@ class Model():
         # squeeze value from shape (num_obs, 1) to (num_obs)
         value = torch.squeeze(value, -1).detach().numpy()
         a_logits = a_logits.detach().numpy()
-
-        sum_exp_logits = np.sum(np.exp(a_logits), -1)
-        a_probs = np.exp(a_logits) / np.expand_dims(sum_exp_logits, -1)  # apply softmax
-        sample_row = lambda row: np.random.choice(row.shape[0], p=row)
-        a_i = np.apply_along_axis(sample_row, 1, a_probs)  # the row to sample from is the action dist (a_probs)
-        a_logit = a_logits[np.arange(a_logits.shape[0]), a_i]
-
-        return a_i, value, a_logit, sum_exp_logits
+        return Model.sample_and_sum_logits(value, a_logits)
 
 # This class will take actions in the environment, based on output from the model.
 # It will return a tuple of experience (observations[], actions[], rewards[]), along with the advantages it calculates
