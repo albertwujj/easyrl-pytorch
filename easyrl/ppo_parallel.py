@@ -58,7 +58,7 @@ class ConvNet(nn.Module):
         self.layer2, shape2 = conv(shape1, c1, c2, kernel_size=4, stride=2)
         self.layer3, shape3 = conv(shape2, c2, c3, kernel_size=3, stride=1)
 
-        fc_in = 294
+        fc_in = 3136
         self.fc = nn.Sequential(nn.ReLU(), nn.Linear(fc_in, fc_out))
         self.fcAction = nn.Linear(fc_out, num_actions)
         self.fcValue = nn.Linear(fc_out, 1)
