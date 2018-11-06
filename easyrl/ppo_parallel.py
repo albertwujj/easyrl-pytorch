@@ -135,9 +135,7 @@ class Model():
     # each tensor can actually represent more than 1 step. First dimension is step #
     def train(self, obs, v_prev, v_target, action_index, a_logit_prev, sum_exp_logits_prev, cliprange):
 
-        adv = v_target - v_prev
-        # normalize advantages
-        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
 
         # convert data to tensors on device (either CPU or GPU)
         v_prev = torch.tensor(v_prev, dtype=torch.float).to(device)
@@ -146,6 +144,9 @@ class Model():
         a_logit_prev = torch.tensor(a_logit_prev, dtype=torch.float).to(device)
         sum_exp_logits_prev = torch.tensor(sum_exp_logits_prev, dtype=torch.float).to(device)
         action_index = torch.tensor(action_index, dtype=torch.int).to(device)
+        adv = v_target - v_prev
+        # normalize advantages
+        adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         value, a_logits = self.nn(obs)
 
@@ -201,7 +202,7 @@ class Runner(object):
         self.nsteps = nsteps
 
     def run(self):
-        print("run 1")
+
         # tracking data points for each step (specifically, each observation)
         # (2+D arrays of shape (num_steps, num_envs) + whatever extra dimensions obs has
         stored_obs, stored_rewards, stored_actions, stored_vpreds, stored_a_logits, stored_sum_exp_logits = [], [], [], [], [], []
@@ -237,7 +238,6 @@ class Runner(object):
             ob, reward, done = self.m_env.step(action_index)
             # experience is not recorded for the final step
 
-        print("run done")
         # convert experience lists to numpy arrays
         stored_obs = np.asarray(stored_obs, dtype=np.float32)
         stored_rewards = np.asarray(stored_rewards, dtype=np.float32)
