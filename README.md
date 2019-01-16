@@ -1,5 +1,6 @@
 # easyrl
-Reinforcement learning algorithms in Pytorch. Thouroughly commented, clear implementations.
+Thouroughly commented, clear implementation.
+
 ## Proximal Policy Optimization
 RL algorithm where the maximization objective given a state-action pair is the advantage times ratio of the action probability over the old action probability, clipped ([paper](https://arxiv.org/pdf/1707.06347.pdf)).  
 
